@@ -1,15 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
-import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import 'react-native-url-polyfill/auto';
 
-const { supabaseUrl, supabaseAnonKey } = (Constants.expoConfig?.extra || {}) as {
-     supabaseUrl: string;
-     supabaseAnonKey: string;
-};
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-     console.warn('Supabase credentials missing in app.json extra');
+     console.warn('Supabase credentials missing in EXPO_PUBLIC env vars');
 }
 
 // LargeSecureStore to handle tokens > 2048 bytes by chunking
@@ -67,7 +64,7 @@ class LargeSecureStore {
 
 const largeSecureStore = new LargeSecureStore();
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '', {
      auth: {
           storage: largeSecureStore,
           autoRefreshToken: true,

@@ -46,8 +46,6 @@
       "reactCompiler": true
     },
     "extra": {
-      "supabaseUrl": "https://sorklznvftjmhkaejkej.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvcmtsem52ZnRqbWhrYWVqa2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzU1NDYwNTksImV4cCI6MjA1MTEyMjA1OX0.6C9AF3Orwtc9ugXFFtQPBuTIE63h8IDXNLirhRMN8uU",
       "router": {},
       "eas": {
         "projectId": "1e54de91-7251-41ea-aead-8c3589c1c521"
