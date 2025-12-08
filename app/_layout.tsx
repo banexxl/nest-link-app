@@ -5,8 +5,9 @@ import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import AuthScreen from './auth/index';
+import ResetPasswordScreen from './auth/reset';
 import TabNavigator from './navigation/TabNavigator';
 
 const Stack = createNativeStackNavigator();
@@ -14,13 +15,13 @@ const Stack = createNativeStackNavigator();
 function RootNavigator() {
   const { session, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
+  // if (loading) {
+  //   return (
+  //     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+  //       <ActivityIndicator />
+  //     </View>
+  //   );
+  // }
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -49,7 +50,6 @@ export default function RootLayout() {
     <AuthProvider>
       <NavigationContainer
         theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}
-        independent={true}
       >
         <StatusBar style="auto" />
         <RootNavigator />

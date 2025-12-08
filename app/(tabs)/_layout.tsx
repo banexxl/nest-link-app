@@ -12,7 +12,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      tabBar={() => <CustomTabBar />}
+      tabBar={props => <CustomTabBar {...props} />}
       screenOptions={{
         tabBarActiveTintColor: Colors.primary.main,
         tabBarInactiveTintColor:

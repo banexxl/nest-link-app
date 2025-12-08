@@ -1,21 +1,20 @@
 import { AuthLayout } from '@/components/layouts';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useNavigation } from '@react-navigation/native';
+import { Redirect } from 'expo-router';
 import React from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity } from 'react-native';
 
 export default function ResetPasswordScreen() {
-     const navigation = useNavigation();
      return (
           <AuthLayout header={<ThemedText type="title">Reset Password</ThemedText>}>
                <ThemedView style={styles.container}>
                     <ThemedText>Enter your email to receive a reset link.</ThemedText>
                     <TextInput style={styles.input} placeholder="you@example.com" />
-                    <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Auth' as any)}>
+                    <TouchableOpacity style={styles.button} onPress={() => <Redirect href="/auth" />}>
                          <Text style={styles.buttonText}>Send Reset Link (TODO)</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => navigation.navigate('Auth' as any)} style={styles.backLink}>
+                    <TouchableOpacity onPress={() => <Redirect href="/auth" />} style={styles.backLink}>
                          <Text style={styles.backLinkText}>Back to Login</Text>
                     </TouchableOpacity>
                </ThemedView>

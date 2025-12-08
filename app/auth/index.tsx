@@ -70,9 +70,9 @@ const LoginScreen = () => {
           // TODO: navigation
      };
 
-     const onResetPassword = () => {
-          navigation.navigate('ResetPassword' as any);
-     };
+     // const onResetPassword = () => {
+     //      navigation.navigate('ResetPassword' as any);
+     // };
 
      return (
           <SafeAreaView style={styles.safeArea}>
@@ -103,18 +103,6 @@ const LoginScreen = () => {
                                    label="Google"
                                    active={authMethod === 'google'}
                                    onPress={() => setAuthMethod('google')}
-                              />
-                         </View>
-
-                         {/* Small divider under active tab */}
-                         <View style={styles.activeUnderlineContainer}>
-                              <View
-                                   style={[
-                                        styles.activeUnderline,
-                                        authMethod === 'password' && { left: 0 },
-                                        authMethod === 'google' && { left: '33.33%' },
-                                        authMethod === 'magic' && { left: '66.66%' },
-                                   ]}
                               />
                          </View>
 
@@ -171,28 +159,6 @@ const LoginScreen = () => {
                               </View>
                          )}
 
-                         {authMethod === 'magic' && (
-                              <View style={styles.altMethodContainer}>
-                                   <Text style={styles.sectionHintCentered}>
-                                        We will send you a sign-in link to your email address
-                                   </Text>
-                                   <View style={styles.fieldContainer}>
-                                        <Text style={styles.fieldLabel}>Email</Text>
-                                        <TextInput
-                                             style={styles.textInput}
-                                             placeholder="you@example.com"
-                                             keyboardType="email-address"
-                                             autoCapitalize="none"
-                                             value={email}
-                                             onChangeText={setEmail}
-                                        />
-                                   </View>
-                                   <TouchableOpacity style={styles.magicButton}>
-                                        <Text style={styles.magicButtonText}>Send magic link</Text>
-                                   </TouchableOpacity>
-                              </View>
-                         )}
-
                          {/* Error message */}
                          {error ? (
                               <View style={styles.errorContainer}>
@@ -218,9 +184,9 @@ const LoginScreen = () => {
 
                               <Text style={styles.footerText}>
                                    Forgot password?{' '}
-                                   <Text style={styles.footerLink} onPress={onResetPassword}>
+                                   {/*  <Text style={styles.footerLink} onPress={onResetPassword}>
                                         Reset password!
-                                   </Text>
+                                   </Text>*/}
                               </Text>
                          </View>
                     </View>
@@ -337,7 +303,7 @@ const styles = StyleSheet.create({
      },
      activeUnderline: {
           position: 'absolute',
-          width: '33.33%',
+          width: '50%',
           height: '100%',
           backgroundColor: PURPLE,
      },
