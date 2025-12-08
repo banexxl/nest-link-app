@@ -5,9 +5,10 @@ import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import AuthScreen from './auth/index';
-import ResetPasswordScreen from './auth/reset';
+import RequestAccessScreen from './auth/request-access';
+import ResetPasswordScreen from './auth/reset-password';
 import TabNavigator from './navigation/TabNavigator';
 
 const Stack = createNativeStackNavigator();
@@ -15,13 +16,13 @@ const Stack = createNativeStackNavigator();
 function RootNavigator() {
   const { session, loading } = useAuth();
 
-  // if (loading) {
-  //   return (
-  //     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-  //       <ActivityIndicator />
-  //     </View>
-  //   );
-  // }
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -38,6 +39,7 @@ function RootNavigator() {
         <>
           <Stack.Screen name="Auth" component={AuthScreen} />
           <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+          <Stack.Screen name="RequestAccess" component={RequestAccessScreen} />
         </>
       )}
     </Stack.Navigator>
