@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { useAuth } from '@/context/auth-context';
 
@@ -26,13 +26,8 @@ export default function IndexScreen() {
     }
   }, [session, loading, navigation]);
 
-  return (
-    <View style={styles.container}>
-      <ActivityIndicator />
-    </View>
-  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  container: { flex: 1 },
 });

@@ -1,13 +1,14 @@
 import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as NavigationBar from 'expo-navigation-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { ActivityIndicator, AppState, Platform, Text, View } from 'react-native';
+import { AppState, Platform, Text, View } from 'react-native';
 import AuthScreen from './auth/index';
 import RequestAccessScreen from './auth/request-access';
 import ResetPasswordScreen from './auth/reset-password';
@@ -18,16 +19,13 @@ const Stack = createNativeStackNavigator();
 function RootNavigator() {
   const { session, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
-
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: 'fade', // smooth fade between screens
+      }}
+    >
       {session ? (
         <>
           <Stack.Screen name="Main" component={TabNavigator} />
@@ -51,12 +49,16 @@ function RootNavigator() {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
+  // Keep the native splash screen visible until we decide to hide it
+  useEffect(() => {
+    SplashScreen.preventAutoHideAsync().catch(() => { });
+  }, []);
+
   useEffect(() => {
     if (Platform.OS !== 'android') return;
 
     const hideNavigationBar = () => {
-      NavigationBar.setVisibilityAsync('hidden').catch(() => {});
-      NavigationBar.setBehaviorAsync('overlay-swipe').catch(() => {});
+      NavigationBar.setVisibilityAsync('hidden').catch(() => { });
     };
 
     hideNavigationBar();

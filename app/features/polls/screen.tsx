@@ -16,12 +16,6 @@ import {
 
 const PRIMARY_COLOR = '#f68a00';
 
-type PollOption = {
-  id: string;
-  label: string;
-  sort_order: number;
-};
-
 type PollAttachment = {
   id: string;
   storage_bucket: string;
@@ -41,7 +35,11 @@ type Poll = {
   status: string;
   starts_at: string | null;
   ends_at: string | null;
-  poll_options?: PollOption[];
+  poll_options?: {
+    id: string;
+    label: string;
+    sort_order: number;
+  }[];
   attachments?: PollAttachment[];
 };
 
@@ -318,7 +316,7 @@ const PollsScreen: React.FC = () => {
     );
   };
 
-  const renderOption = (option: PollOption) => {
+  const renderOption = (option: { id: string; label: string; sort_order: number }) => {
     const isSelected = option.id === selectedOptionId;
     return (
       <TouchableOpacity
@@ -339,14 +337,6 @@ const PollsScreen: React.FC = () => {
       </TouchableOpacity>
     );
   };
-
-  if (loading && polls.length === 0) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
 
   if (error) {
     return (

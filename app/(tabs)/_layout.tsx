@@ -18,6 +18,7 @@ export default function TabLayout() {
         tabBarInactiveTintColor:
           colorScheme === 'dark' ? Colors.secondary.light : Colors.secondary.dark,
         headerShown: false,
+        animation: 'fade',
         tabBarButton: HapticTab,
       }}>
       <Tabs.Screen

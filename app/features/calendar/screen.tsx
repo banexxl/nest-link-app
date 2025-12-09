@@ -1,14 +1,7 @@
 // app/main/calendar.tsx
 import { supabase } from '@/lib/supabase';
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 
 const PRIMARY_COLOR = '#f68a00';
@@ -183,14 +176,6 @@ const CalendarScreen: React.FC = () => {
       </View>
     );
   };
-
-  if (loading && events.length === 0) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
 
   if (error) {
     return (
