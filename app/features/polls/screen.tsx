@@ -109,7 +109,6 @@ const PollsScreen: React.FC = () => {
           .order('starts_at', { ascending: true });
 
         if (error) {
-          console.log('Error fetching polls:', error);
           setError(error.message);
           setPolls([]);
         } else {
@@ -121,7 +120,6 @@ const PollsScreen: React.FC = () => {
           }
         }
       } catch (err: any) {
-        console.log('Unexpected error fetching polls:', err);
         setError(err?.message ?? 'Failed to load polls.');
         setPolls([]);
       } finally {
@@ -167,7 +165,6 @@ const PollsScreen: React.FC = () => {
           setAbstain(false);
         }
       } catch (err) {
-        console.log('Unexpected error loading existing vote:', err);
         setExistingVote(null);
         setSelectedOptionId(null);
         setAbstain(false);
@@ -210,8 +207,8 @@ const PollsScreen: React.FC = () => {
     if (!url) return;
 
     Linking.openURL(url).catch((err) =>
-      console.log('Failed to open poll attachment:', err)
-    );
+      console.log('Failed to open attachment URL:', err
+      ))
   };
 
   const handleSubmitVote = async () => {
@@ -262,7 +259,6 @@ const PollsScreen: React.FC = () => {
       }
 
       if (error) {
-        console.log('Error submitting vote:', error);
         setVoteMessage(error.message ?? 'Failed to submit vote.');
       } else {
         setVoteMessage('Your vote has been recorded.');
@@ -274,7 +270,6 @@ const PollsScreen: React.FC = () => {
         });
       }
     } catch (err: any) {
-      console.log('Unexpected error submitting vote:', err);
       setVoteMessage(err?.message ?? 'Failed to submit vote.');
     } finally {
       setSubmitting(false);

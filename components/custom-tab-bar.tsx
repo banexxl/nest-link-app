@@ -140,7 +140,6 @@ export function CustomTabBar(props: BottomTabBarProps) {
                     <TouchableOpacity
                          style={styles.iconButton}
                          onPress={() => {
-                              console.log('Burger menu pressed');
                               setBurgerVisible(true);
                          }}
                          activeOpacity={0.7}
@@ -157,7 +156,6 @@ export function CustomTabBar(props: BottomTabBarProps) {
                     <TouchableOpacity
                          style={styles.iconButton}
                          onPress={() => {
-                              console.log('Profile menu pressed');
                               setProfileVisible(true);
                          }}
                          activeOpacity={0.7}

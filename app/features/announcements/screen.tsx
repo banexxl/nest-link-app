@@ -84,14 +84,12 @@ const AnnouncementsScreen: React.FC = () => {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.log('Error fetching announcements:', error);
         setError(error.message);
         setAnnouncements([]);
       } else {
         setAnnouncements((data ?? []) as Announcement[]);
       }
     } catch (err: any) {
-      console.log('Unexpected error fetching announcements:', err);
       setError(err?.message ?? 'Failed to load announcements.');
       setAnnouncements([]);
     } finally {
@@ -153,6 +151,27 @@ const AnnouncementsScreen: React.FC = () => {
     setRefreshing(true);
     await fetchAnnouncements();
     setRefreshing(false);
+  };
+
+  const openImage = async (ref: StorageRef) => {
+    const key = `${ref.storage_bucket}:${ref.storage_path}`;
+
+    let url: string | null = signedUrls[key] ?? null;
+
+    // Fallback: if we somehow don't have a cached URL (or it became invalid),
+    // sign again just for this image.
+    if (!url) {
+      url = await signFileUrl({
+        bucket: ref.storage_bucket,
+        path: ref.storage_path,
+      });
+
+      if (!url) return;
+      const nonNullUrl: string = url;
+      setSignedUrls((prev) => ({ ...prev, [key]: nonNullUrl }));
+    }
+
+    setSelectedImageUrl(url);
   };
 
   const openDoc = async (ref: StorageRef) => {
@@ -223,12 +242,8 @@ const AnnouncementsScreen: React.FC = () => {
               return (
                 <TouchableOpacity
                   key={img.id}
-                  onPress={() => {
-                    if (url) {
-                      setSelectedImageUrl(url);
-                    }
-                  }}
-                  activeOpacity={url ? 0.85 : 1}
+                  onPress={() => openImage(img)}
+                  activeOpacity={0.85}
                 >
                   <View style={styles.imageWrapper}>
                     {url ? (

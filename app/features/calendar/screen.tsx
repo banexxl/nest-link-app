@@ -70,14 +70,12 @@ const CalendarScreen: React.FC = () => {
           .order('start_date_time', { ascending: true });
 
         if (error) {
-          console.log('Error fetching calendar events:', error);
           setError(error.message);
           setEvents([]);
         } else {
           setEvents((data ?? []) as CalendarEvent[]);
         }
       } catch (err: any) {
-        console.log('Unexpected error fetching calendar events:', err);
         setError(err?.message ?? 'Failed to load events.');
         setEvents([]);
       } finally {

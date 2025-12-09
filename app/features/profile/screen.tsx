@@ -208,7 +208,6 @@ const ProfileScreen: React.FC = () => {
 
       setAvatarUrl(nextAvatarUrl);
     } catch (error: any) {
-      console.log('Error loading avatar:', error);
       setAvatarError(error?.message ?? 'Failed to load avatar.');
     } finally {
       setAvatarLoading(false);
@@ -294,13 +293,11 @@ const ProfileScreen: React.FC = () => {
         setAvatarError(profileErrorMessage);
       }
     } catch (error: any) {
-      console.log('Error updating avatar:', error);
       setAvatarError(error?.message ?? 'Failed to update avatar.');
     } finally {
       setAvatarSaving(false);
     }
   };
-  console.log('user', user);
 
   return (
     <View style={styles.root}>

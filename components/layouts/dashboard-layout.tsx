@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedView } from '../themed-view';
 
@@ -9,6 +9,12 @@ type DashboardLayoutProps = {
      children: React.ReactNode;
      scroll?: boolean;
      stickyHeader?: boolean;
+     refreshing?: boolean;
+     onRefresh?: () => void | Promise<void>;
+     refreshControlProps?: Omit<
+          React.ComponentProps<typeof RefreshControl>,
+          'refreshing' | 'onRefresh'
+     >;
 };
 
 export function DashboardLayout({
@@ -17,9 +23,25 @@ export function DashboardLayout({
      children,
      scroll = true,
      stickyHeader = false,
+     refreshing = false,
+     onRefresh,
+     refreshControlProps,
 }: DashboardLayoutProps) {
      const content = scroll ? (
-          <ScrollView contentContainerStyle={styles.scrollContent}>{children}</ScrollView>
+          <ScrollView
+               contentContainerStyle={styles.scrollContent}
+               refreshControl={
+                    onRefresh ? (
+                         <RefreshControl
+                              refreshing={refreshing}
+                              onRefresh={onRefresh}
+                              {...refreshControlProps}
+                         />
+                    ) : undefined
+               }
+          >
+               {children}
+          </ScrollView>
      ) : (
           <View style={styles.fill}>{children}</View>
      );

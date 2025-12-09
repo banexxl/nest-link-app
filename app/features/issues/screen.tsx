@@ -11,6 +11,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -156,7 +157,6 @@ const ServiceRequestsScreen: React.FC = () => {
           .order('created_at', { ascending: false });
 
         if (error) {
-          console.log('Error fetching incidents:', error);
           setError(error.message);
           setIncidents([]);
         } else {
@@ -167,7 +167,6 @@ const ServiceRequestsScreen: React.FC = () => {
           }
         }
       } catch (err: any) {
-        console.log('Unexpected error fetching incidents:', err);
         setError(err?.message ?? 'Failed to load service requests.');
         setIncidents([]);
       } finally {
@@ -243,7 +242,6 @@ const ServiceRequestsScreen: React.FC = () => {
           .in('user_id', Array.from(idsToResolve));
 
         if (error) {
-          console.log('Error loading comment authors:', error);
           return;
         }
 
@@ -261,7 +259,6 @@ const ServiceRequestsScreen: React.FC = () => {
           return next;
         });
       } catch (err: any) {
-        console.log('Unexpected error loading comment authors:', err);
       }
     };
 
@@ -369,7 +366,6 @@ const ServiceRequestsScreen: React.FC = () => {
         .single();
 
       if (error) {
-        console.log('Error creating incident:', error);
         setFormError(error.message ?? 'Failed to create service request.');
       } else if (data) {
         const newIncident = data as Incident;
@@ -379,7 +375,6 @@ const ServiceRequestsScreen: React.FC = () => {
         setForm(defaultForm);
       }
     } catch (err: any) {
-      console.log('Unexpected error creating incident:', err);
       setFormError(err?.message ?? 'Failed to create service request.');
     } finally {
       setSubmitting(false);
