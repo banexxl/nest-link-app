@@ -152,7 +152,7 @@ const ServiceRequestsScreen: React.FC = () => {
           `
           )
           // user-specific filter: reported_by
-          .eq('reported_by', profileId)
+          // .eq('reported_by', profileId)
           .order('created_at', { ascending: false });
 
         if (error) {
