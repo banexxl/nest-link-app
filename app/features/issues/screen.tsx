@@ -61,7 +61,7 @@ type IncidentImage = {
 
 type IncidentComment = {
   id: string;
-  author_profile_id: string | null;
+  user_id: string | null;
   message: string | null;
   created_at: string;
 };
@@ -85,7 +85,6 @@ const defaultForm: NewIncidentForm = {
 const ServiceRequestsScreen: React.FC = () => {
   const { session } = useAuth();
   const profileId = session?.user.id ?? null; // TODO: map to tenant profile id if needed
-  console.log('Profile ID in ServiceRequestsScreen:', profileId);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +107,7 @@ const ServiceRequestsScreen: React.FC = () => {
 
   // signedUrls cache for images
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [commentAuthors, setCommentAuthors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const fetchIncidents = async () => {
@@ -145,7 +145,7 @@ const ServiceRequestsScreen: React.FC = () => {
             ),
             comments:tblIncidentReportComments (
               id,
-              author_profile_id,
+              user_id,
               message,
               created_at
             )
@@ -220,6 +220,55 @@ const ServiceRequestsScreen: React.FC = () => {
       signAll();
     }
   }, [incidents, signedUrls]);
+
+  // Resolve commenter display names from tblTenants.user_id
+  useEffect(() => {
+    const loadCommentAuthors = async () => {
+      const idsToResolve = new Set<string>();
+
+      incidents.forEach((inc) => {
+        (inc.comments ?? []).forEach((c) => {
+          if (!c.user_id) return;
+          if (commentAuthors[c.user_id]) return;
+          idsToResolve.add(c.user_id);
+        });
+      });
+
+      if (idsToResolve.size === 0) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('tblTenants')
+          .select('user_id, full_name')
+          .in('user_id', Array.from(idsToResolve));
+
+        if (error) {
+          console.log('Error loading comment authors:', error);
+          return;
+        }
+
+        if (!data) return;
+
+        setCommentAuthors((prev) => {
+          const next = { ...prev };
+          (data as any[]).forEach((row) => {
+            const uid = row.user_id as string | null;
+            const name = (row.full_name as string | null) ?? null;
+            if (uid && name) {
+              next[uid] = name;
+            }
+          });
+          return next;
+        });
+      } catch (err: any) {
+        console.log('Unexpected error loading comment authors:', err);
+      }
+    };
+
+    if (incidents.length > 0) {
+      loadCommentAuthors();
+    }
+  }, [incidents, commentAuthors]);
 
   const handleSelectIncident = (id: string) => {
     setSelectedIncidentId(id);
@@ -311,7 +360,7 @@ const ServiceRequestsScreen: React.FC = () => {
         ),
         comments:tblIncidentReportComments (
           id,
-          author_profile_id,
+          user_id,
           message,
           created_at
         )
@@ -347,14 +396,14 @@ const ServiceRequestsScreen: React.FC = () => {
     try {
       const payload = {
         incident_id: selectedIncident.id,
-        author_profile_id: profileId,
+        user_id: profileId,
         message: msg,
       };
 
       const { data, error } = await supabase
         .from('tblIncidentReportComments')
         .insert(payload)
-        .select('id, author_profile_id, message, created_at')
+        .select('id, user_id, message, created_at')
         .single();
 
       if (error) {
@@ -650,6 +699,16 @@ const ServiceRequestsScreen: React.FC = () => {
                   )
                   .map((c) => (
                     <View key={c.id} style={styles.commentCard}>
+                      <Text style={styles.commentAuthor}>
+                        {c.user_id && commentAuthors[c.user_id]
+                          ? commentAuthors[c.user_id]
+                          : c.user_id === profileId
+                            ? ((session?.user.user_metadata?.full_name as string | undefined) ||
+                              (session?.user.user_metadata?.name as string | undefined) ||
+                              session?.user.email ||
+                              'You')
+                            : 'Unknown user'}
+                      </Text>
                       <Text style={styles.commentMeta}>
                         {new Date(c.created_at).toLocaleString()}
                       </Text>
@@ -844,6 +903,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginBottom: 6,
+  },
+  commentAuthor: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 1,
   },
   commentMeta: {
     fontSize: 11,

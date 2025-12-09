@@ -485,6 +485,7 @@ export default ProfileScreen;
 
 const styles = StyleSheet.create({
   root: {
+    marginTop: 30,
     flex: 1,
     backgroundColor: '#f4f4f7',
   },

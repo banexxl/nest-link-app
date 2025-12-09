@@ -134,11 +134,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                }
           );
 
+          // Handle deep links from OAuth (e.g. nestlinkapp://auth/callback)
+          const handleDeepLink = async (event: { url: string }) => {
+               try {
+                    const url = event.url;
+
+                    if (!url || !url.startsWith('nestlinkapp://auth/callback')) {
+                         return;
+                    }
+
+                    // We expect a PKCE code in the query params, e.g.
+                    // nestlinkapp://auth/callback?code=...&scope=...
+                    const parsed = new URL(url);
+                    const code = parsed.searchParams.get('code');
+                    const errorDesc = parsed.searchParams.get('error_description');
+
+                    if (errorDesc) {
+                         console.error('OAuth error from redirect:', errorDesc);
+                         return;
+                    }
+
+                    if (!code) {
+                         console.warn('OAuth redirect received without code parameter');
+                         return;
+                    }
+
+                    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+                    if (error) {
+                         console.error('Error exchanging code for session:', error);
+                         return;
+                    }
+
+                    if (!data?.session) return;
+
+                    setSession(data.session);
+
+                    // Ensure tenant exists for this user
+                    const tenantResult = await ensureTenantExists(data.session.user.id);
+                    if (!tenantResult.success) {
+                         await supabase.auth.signOut();
+                         setTenantId(null);
+                         return;
+                    }
+
+                    setTenantId(tenantResult.tenantId);
+               } catch (err) {
+                    console.error('Deep link handling error:', err);
+               }
+          };
+
+          const linkingSubscription = Linking.addEventListener('url', handleDeepLink);
+
+          // Also handle the case where the app is cold-started from the deep link
+          Linking.getInitialURL()
+               .then((initialUrl) => {
+                    if (initialUrl) {
+                         handleDeepLink({ url: initialUrl });
+                    }
+               })
+               .catch((err) => {
+                    console.error('Error getting initial URL:', err);
+               });
+
           return () => {
                mounted = false;
                clearTimeout(loadingTimeout);
                listener.subscription.unsubscribe();
                appStateSubscription.remove();
+               linkingSubscription.remove();
           };
      }, []);
 
@@ -177,7 +241,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                          // Use the mobile app deep link so the session
                          // comes back to this client instead of the web app
                          redirectTo: 'nestlinkapp://auth/callback',
-                    },
+                         // For React Native, use PKCE so we can exchange
+                         // the code in the deep link for a session.
+                         flowType: 'pkce',
+                         skipBrowserRedirect: true,
+                    } as any,
                });
 
                if (error) {
@@ -193,9 +261,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                }
 
                // After the browser flow, the deep link will bring the user
-               // back into the app via nestlinkapp://auth/callback. From
-               // there, Supabase will finalize the session and our auth
-               // listener will pick it up.
+               // back into the app via nestlinkapp://auth/callback. Our
+               // deep link handler will then call exchangeCodeForSession.
                return { success: true };
           } catch (err: any) {
                console.error('Google sign-in error:', err);
