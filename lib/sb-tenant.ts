@@ -3,13 +3,24 @@ import { SupabaseClient } from '@supabase/supabase-js';
 // import type { Database } from '@/types/supabase'; // if you use generated types
 
 // helper to roughly validate UUID (optional)
-const isUUID = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+const isUUID = (v: string) =>
+     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 
 export type TenantClientBuildingInfo = {
      tenantId: string;
      clientId: string;
      buildingId: string;
      apartmentId: string;
+};
+
+export type TenantAddressInfo = {
+     tenantId: string;
+     apartmentId: string;
+     apartmentNumber: string;
+     buildingId: string;
+     city: string;
+     streetAddress: string;
+     buildingNumber: string;
 };
 
 export const getClientIdFromTenantBuilding = async (
@@ -173,6 +184,97 @@ export const getClientIdFromAuthUser = async (
           };
      } catch (error: any) {
           console.log('Error in getClientIdFromAuthUser:', error);
+          return {
+               success: false,
+               error: error?.message || 'Unexpected error',
+          };
+     }
+};
+
+export const getTenantAddressFromTenantId = async (
+     supabase: SupabaseClient,
+     tenantId: string
+): Promise<{
+     success: boolean;
+     data?: TenantAddressInfo;
+     error?: string;
+}> => {
+     if (!tenantId || !isUUID(tenantId)) {
+          return { success: false, error: 'Invalid tenant ID' };
+     }
+
+     try {
+          // 1) tenant -> apartment_id
+          const { data: tenant, error: tenantError } = await supabase
+               .from('tblTenants')
+               .select('apartment_id')
+               .eq('id', tenantId)
+               .single();
+
+          if (tenantError) {
+               console.log('Error fetching tenant for address:', tenantError.message);
+               return { success: false, error: tenantError.message };
+          }
+
+          if (!tenant?.apartment_id) {
+               return { success: false, error: 'Tenant has no apartment assigned' };
+          }
+
+          const apartmentId = tenant.apartment_id as string;
+
+          // 2) apartment -> apartment_number, building_id
+          const { data: apartment, error: apartmentError } = await supabase
+               .from('tblApartments')
+               .select('apartment_number, building_id')
+               .eq('id', apartmentId)
+               .single();
+
+          if (apartmentError) {
+               console.log('Error fetching apartment for address:', apartmentError.message);
+               return { success: false, error: apartmentError.message };
+          }
+
+          if (!apartment?.building_id) {
+               return { success: false, error: 'Apartment has no building assigned' };
+          }
+
+          const buildingId = apartment.building_id as string;
+          const apartmentNumber = String(apartment.apartment_number ?? '');
+
+          // 3) building -> location (city, street_address, number)
+          const { data: location, error: locationError } = await supabase
+               .from('tblBuildingLocations')
+               .select('city, street_address, street_number')
+               .eq('building_id', buildingId)
+               .maybeSingle();
+
+          if (locationError) {
+               console.log('Error fetching building location:', locationError.message);
+               return { success: false, error: locationError.message };
+          }
+
+          if (!location) {
+               return { success: false, error: 'No building location found for this building.' };
+          }
+
+          const city = String(location.city ?? '');
+          const streetAddress = String(location.street_address ?? '');
+          const buildingNumber = String(location.street_number ?? '');
+
+          return {
+               success: true,
+               data: {
+                    tenantId,
+                    apartmentId,
+                    apartmentNumber,
+                    buildingId,
+                    city,
+                    streetAddress,
+                    buildingNumber,
+               },
+          };
+     } catch (error: any) {
+          console.log('Error in getTenantAddressFromTenantId:', error);
           return {
                success: false,
                error: error?.message || 'Unexpected error',

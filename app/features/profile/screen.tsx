@@ -1,20 +1,133 @@
 // app/main/profile.tsx  (or wherever you keep authenticated screens)
 import { useAuth } from '@/context/auth-context';
-import React from 'react';
+import { getTenantAddressFromTenantId, type TenantAddressInfo } from '@/lib/sb-tenant';
+import { supabase } from '@/lib/supabase';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Image,
   ImageBackground,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  type ImageSourcePropType,
 } from 'react-native';
 
 const PRIMARY_COLOR = '#f68a00';
 
+type AvatarOption = {
+  id: string;
+  label: string;
+  source: ImageSourcePropType;
+};
+
+const AVATAR_OPTIONS: AvatarOption[] = [
+  {
+    id: 'avatar-alcides-antonio.png',
+    label: 'Alcides Antonio',
+    source: require('@/assets/avatars/avatar-alcides-antonio.png'),
+  },
+  {
+    id: 'avatar-anika-visser.png',
+    label: 'Anika Visser',
+    source: require('@/assets/avatars/avatar-anika-visser.png'),
+  },
+  {
+    id: 'avatar-cao-yu.png',
+    label: 'Cao Yu',
+    source: require('@/assets/avatars/avatar-cao-yu.png'),
+  },
+  {
+    id: 'avatar-carson-darrin.png',
+    label: 'Carson Darrin',
+    source: require('@/assets/avatars/avatar-carson-darrin.png'),
+  },
+  {
+    id: 'avatar-chinasa-neo.png',
+    label: 'Chinasa Neo',
+    source: require('@/assets/avatars/avatar-chinasa-neo.png'),
+  },
+  {
+    id: 'avatar-fran-perez.png',
+    label: 'Fran Perez',
+    source: require('@/assets/avatars/avatar-fran-perez.png'),
+  },
+  {
+    id: 'avatar-iulia-albu.png',
+    label: 'Iulia Albu',
+    source: require('@/assets/avatars/avatar-iulia-albu.png'),
+  },
+  {
+    id: 'avatar-jane-rotanson.png',
+    label: 'Jane Rotanson',
+    source: require('@/assets/avatars/avatar-jane-rotanson.png'),
+  },
+  {
+    id: 'avatar-jie-yan-song.png',
+    label: 'Jie Yan Song',
+    source: require('@/assets/avatars/avatar-jie-yan-song.png'),
+  },
+  {
+    id: 'avatar-marcus-finn.png',
+    label: 'Marcus Finn',
+    source: require('@/assets/avatars/avatar-marcus-finn.png'),
+  },
+  {
+    id: 'avatar-miron-vitold.png',
+    label: 'Miron Vitold',
+    source: require('@/assets/avatars/avatar-miron-vitold.png'),
+  },
+  {
+    id: 'avatar-nasimiyu-danai.png',
+    label: 'Nasimiyu Danai',
+    source: require('@/assets/avatars/avatar-nasimiyu-danai.png'),
+  },
+  {
+    id: 'avatar-neha-punita.png',
+    label: 'Neha Punita',
+    source: require('@/assets/avatars/avatar-neha-punita.png'),
+  },
+  {
+    id: 'avatar-omar-darboe.png',
+    label: 'Omar Darboe',
+    source: require('@/assets/avatars/avatar-omar-darboe.png'),
+  },
+  {
+    id: 'avatar-penjani-inyene.png',
+    label: 'Penjani Inyene',
+    source: require('@/assets/avatars/avatar-penjani-inyene.png'),
+  },
+  {
+    id: 'avatar-seo-hyeon-ji.png',
+    label: 'Seo Hyeon Ji',
+    source: require('@/assets/avatars/avatar-seo-hyeon-ji.png'),
+  },
+  {
+    id: 'avatar-siegbert-gottfried.png',
+    label: 'Siegbert Gottfried',
+    source: require('@/assets/avatars/avatar-siegbert-gottfried.png'),
+  },
+];
+
+const buildAvatarUrl = (fileName: string) => `assets/avatars/${fileName}`;
+
 const ProfileScreen: React.FC = () => {
-  const { session, signOut } = useAuth();
+  const { session, signOut, tenantId } = useAuth();
   const user = session?.user;
+
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarPickerVisible, setAvatarPickerVisible] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
+  const [tenantAddress, setTenantAddress] = useState<TenantAddressInfo | null>(null);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
 
   const fullName =
     (user?.user_metadata?.full_name as string | undefined) ||
@@ -28,9 +141,166 @@ const ProfileScreen: React.FC = () => {
     .slice(0, 2)
     .toUpperCase();
 
+  const selectedAvatarKey = useMemo(() => {
+    if (!avatarUrl) return null;
+    const normalized = avatarUrl.toLowerCase();
+    const match = AVATAR_OPTIONS.find((opt) =>
+      normalized.includes(opt.id.toLowerCase())
+    );
+    return match?.id ?? null;
+  }, [avatarUrl]);
+
+  const avatarSource = useMemo(() => {
+    if (selectedAvatarKey) {
+      const option = AVATAR_OPTIONS.find((opt) => opt.id === selectedAvatarKey);
+      if (option) return option.source;
+    }
+
+    if (avatarUrl && (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://'))) {
+      return { uri: avatarUrl };
+    }
+
+    return null;
+  }, [avatarUrl, selectedAvatarKey]);
+
+  const loadAvatar = useCallback(async () => {
+    if (!session?.user?.id && !tenantId) return;
+
+    setAvatarLoading(true);
+    setAvatarError(null);
+
+    try {
+      const userId = session?.user?.id ?? null;
+      const tenantFilterColumn = tenantId ? 'id' : 'user_id';
+      const tenantFilterValue = tenantId ?? userId;
+
+      if (!tenantFilterValue) return;
+
+      const { data: tenant, error: tenantError } = await supabase
+        .from('tblTenants')
+        .select('id, avatar_url')
+        .eq(tenantFilterColumn, tenantFilterValue)
+        .maybeSingle();
+
+      if (tenantError && tenantError.code !== 'PGRST116') {
+        setAvatarError(tenantError.message);
+        return;
+      }
+
+      const tenantRowId = tenantId ?? (tenant?.id as string | undefined) ?? null;
+      setResolvedTenantId(tenantRowId);
+
+      let nextAvatarUrl = (tenant?.avatar_url as string | null | undefined) ?? null;
+
+      if (tenantRowId) {
+        const { data: profile, error: profileError } = await supabase
+          .from('tblTenantProfiles')
+          .select('avatar_url')
+          .eq('tenant_id', tenantRowId)
+          .maybeSingle();
+
+        if (!profileError && profile?.avatar_url) {
+          nextAvatarUrl = profile.avatar_url as string;
+        } else if (profileError && profileError.code !== 'PGRST116') {
+          setAvatarError(profileError.message);
+        }
+      }
+
+      setAvatarUrl(nextAvatarUrl);
+    } catch (error: any) {
+      console.log('Error loading avatar:', error);
+      setAvatarError(error?.message ?? 'Failed to load avatar.');
+    } finally {
+      setAvatarLoading(false);
+    }
+  }, [session?.user?.id, tenantId]);
+
+  useEffect(() => {
+    loadAvatar();
+  }, [loadAvatar]);
+
+  useEffect(() => {
+    const fetchAddress = async () => {
+      if (!tenantId) return;
+
+      setAddressLoading(true);
+      setAddressError(null);
+
+      const result = await getTenantAddressFromTenantId(supabase, tenantId);
+
+      if (!result.success || !result.data) {
+        setAddressError(result.error ?? 'Failed to load tenant address.');
+        setTenantAddress(null);
+      } else {
+        setTenantAddress(result.data);
+      }
+
+      setAddressLoading(false);
+    };
+
+    fetchAddress();
+  }, [tenantId]);
+
   const handleSignOut = async () => {
     await signOut();
   };
+
+  const handleSelectAvatar = async (option: AvatarOption) => {
+    if (!session?.user?.id && !resolvedTenantId && !tenantId) {
+      setAvatarError('No active session found.');
+      return;
+    }
+
+    const targetTenantId = resolvedTenantId ?? tenantId ?? null;
+    const tenantFilterColumn = targetTenantId ? 'id' : 'user_id';
+    const tenantFilterValue = targetTenantId ?? session?.user?.id;
+    const valueForDb = buildAvatarUrl(option.id);
+
+    if (!tenantFilterValue) {
+      setAvatarError('Missing tenant information for avatar update.');
+      return;
+    }
+
+    setAvatarSaving(true);
+    setAvatarError(null);
+
+    try {
+      const { error: tenantUpdateError } = await supabase
+        .from('tblTenants')
+        .update({ avatar_url: valueForDb })
+        .eq(tenantFilterColumn, tenantFilterValue);
+
+      if (tenantUpdateError) {
+        setAvatarError(tenantUpdateError.message);
+        return;
+      }
+
+      let profileErrorMessage: string | null = null;
+      if (targetTenantId) {
+        const { error: profileUpdateError } = await supabase
+          .from('tblTenantProfiles')
+          .update({ avatar_url: valueForDb })
+          .eq('tenant_id', targetTenantId);
+
+        if (profileUpdateError) {
+          profileErrorMessage = profileUpdateError.message;
+        }
+      }
+
+      setAvatarUrl(valueForDb);
+      setAvatarPickerVisible(false);
+
+      if (profileErrorMessage) {
+        setAvatarError(profileErrorMessage);
+      }
+    } catch (error: any) {
+      console.log('Error updating avatar:', error);
+      setAvatarError(error?.message ?? 'Failed to update avatar.');
+    } finally {
+      setAvatarSaving(false);
+    }
+  };
+  console.log('user', user);
 
   return (
     <View style={styles.root}>
@@ -47,9 +317,23 @@ const ProfileScreen: React.FC = () => {
           >
             {/* Top profile card */}
             <View style={styles.topCard}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{initials}</Text>
-              </View>
+              <TouchableOpacity
+                style={styles.avatarButton}
+                onPress={() => setAvatarPickerVisible(true)}
+                activeOpacity={0.85}
+                disabled={avatarLoading}
+              >
+                <View style={styles.avatar}>
+                  {avatarLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : avatarSource ? (
+                    <Image source={avatarSource} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={styles.avatarText}>{initials}</Text>
+                  )}
+                </View>
+                <Text style={styles.editAvatarLabel}>Edit avatar</Text>
+              </TouchableOpacity>
 
               <Text style={styles.name}>{fullName}</Text>
               <Text style={styles.email}>{email}</Text>
@@ -85,14 +369,20 @@ const ProfileScreen: React.FC = () => {
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Building</Text>
                 <Text style={styles.detailValue}>
-                  {(user?.user_metadata?.building_name as string) || 'Not assigned'}
+                  {addressLoading
+                    ? 'Loading...'
+                    : tenantAddress
+                      ? `${tenantAddress.streetAddress} ${tenantAddress.buildingNumber}, ${tenantAddress.city}`
+                      : 'Not assigned'}
                 </Text>
               </View>
 
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Apartment</Text>
                 <Text style={styles.detailValue}>
-                  {(user?.user_metadata?.apartment_label as string) || 'Not assigned'}
+                  {addressLoading
+                    ? 'Loading...'
+                    : tenantAddress?.apartmentNumber || 'Not assigned'}
                 </Text>
               </View>
 
@@ -107,17 +397,6 @@ const ProfileScreen: React.FC = () => {
             {/* Actions */}
             <View style={styles.actionsCard}>
               <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={() => {
-                  // later: navigate to EditProfile
-                  console.log('Edit profile pressed');
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.primaryButtonLabel}>Edit profile</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
                 style={styles.secondaryButton}
                 onPress={handleSignOut}
                 activeOpacity={0.8}
@@ -128,6 +407,76 @@ const ProfileScreen: React.FC = () => {
           </ScrollView>
         </View>
       </ImageBackground>
+
+      {addressError ? (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          <Text style={{ color: '#d00', fontSize: 12, textAlign: 'center' }}>
+            {addressError}
+          </Text>
+        </View>
+      ) : null}
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={avatarPickerVisible}
+        onRequestClose={() => setAvatarPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Choose an avatar</Text>
+              <TouchableOpacity
+                onPress={() => setAvatarPickerVisible(false)}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Text style={styles.closeButton}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.avatarGrid}
+              showsVerticalScrollIndicator={false}
+            >
+              {AVATAR_OPTIONS.map((option) => {
+                const isSelected = selectedAvatarKey === option.id;
+                return (
+                  <TouchableOpacity
+                    key={option.id}
+                    style={[
+                      styles.avatarChoice,
+                      isSelected && styles.avatarChoiceSelected,
+                    ]}
+                    onPress={() => handleSelectAvatar(option)}
+                    activeOpacity={0.85}
+                    disabled={avatarSaving}
+                  >
+                    <Image
+                      source={option.source}
+                      style={styles.avatarChoiceImage}
+                    />
+                    <Text style={styles.avatarChoiceLabel}>{option.label}</Text>
+                    {isSelected ? (
+                      <Text style={styles.avatarSelectedTag}>Selected</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {avatarSaving ? (
+              <ActivityIndicator
+                size="small"
+                color={PRIMARY_COLOR}
+                style={styles.avatarSavingSpinner}
+              />
+            ) : null}
+            {avatarError ? (
+              <Text style={styles.avatarError}>{avatarError}</Text>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -163,6 +512,10 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 5,
   },
+  avatarButton: {
+    alignItems: 'center',
+    marginBottom: 6,
+  },
   avatar: {
     width: 80,
     height: 80,
@@ -172,10 +525,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 40,
+  },
   avatarText: {
     color: '#fff',
     fontSize: 30,
     fontWeight: '700',
+  },
+  editAvatarLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: PRIMARY_COLOR,
   },
   name: {
     fontSize: 20,
@@ -269,5 +632,82 @@ const styles = StyleSheet.create({
     color: '#d9534f',
     fontSize: 14,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#fff',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#222',
+  },
+  closeButton: {
+    fontSize: 18,
+    color: '#444',
+    fontWeight: '700',
+  },
+  avatarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  avatarChoice: {
+    width: '48%',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    backgroundColor: '#f7f7fb',
+    marginBottom: 12,
+  },
+  avatarChoiceSelected: {
+    borderColor: PRIMARY_COLOR,
+    backgroundColor: 'rgba(246,138,0,0.08)',
+  },
+  avatarChoiceImage: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    marginBottom: 6,
+  },
+  avatarChoiceLabel: {
+    fontSize: 12,
+    color: '#333',
+    textAlign: 'center',
+  },
+  avatarSelectedTag: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
+  },
+  avatarSavingSpinner: {
+    marginTop: 10,
+  },
+  avatarError: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#d00',
+    textAlign: 'center',
   },
 });
