@@ -6,10 +6,15 @@ import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
 import { getBuildingIdFromUserId, getClientIdFromAuthUser } from '@/lib/sb-tenant';
 import { signFileUrl } from '@/lib/sign-file';
 import { supabase } from '@/lib/supabase';
+import { uploadIncidentImage } from '@/lib/supabase-storage';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Image as ExpoImage } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -22,17 +27,26 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { useLocalSearchParams } from 'expo-router';
 
 const PRIMARY_COLOR = '#f68a00';
 
 type IncidentCategory =
   | 'plumbing'
   | 'electrical'
-  | 'heating'
+  | 'noise'
+  | 'cleaning'
   | 'common_area'
-  | 'other'
+  | 'heating'
+  | 'cooling'
+  | 'structural'
+  | 'interior'
+  | 'outdoorsafety'
+  | 'security'
+  | 'pests'
+  | 'administrative'
+  | 'parking'
+  | 'it'
+  | 'waste'
   | string;
 
 type IncidentPriority = 'low' | 'medium' | 'high' | 'urgent' | string;
@@ -443,7 +457,28 @@ const ServiceRequestsScreen: React.FC = () => {
       if (error) {
         setFormError(error.message ?? 'Failed to create service request.');
       } else if (data) {
-        const newIncident = data as Incident;
+        let newIncident = data as Incident;
+
+        if (capturedPhotoUri) {
+          try {
+            const uploadedImage = await uploadIncidentImage({
+              clientId,
+              incidentId: newIncident.id,
+              localUri: capturedPhotoUri,
+              buildingId,
+              apartmentId,
+            });
+
+            if (uploadedImage) {
+              newIncident = {
+                ...newIncident,
+                images: [...(newIncident.images ?? []), uploadedImage],
+              };
+            }
+          } catch (uploadErr) {
+            console.warn('Failed to upload incident image', uploadErr);
+          }
+        }
         setIncidents((prev) => [newIncident, ...prev]);
         setCreating(false);
         setSelectedIncidentId(newIncident.id);
@@ -533,6 +568,58 @@ const ServiceRequestsScreen: React.FC = () => {
       </TouchableOpacity>
     );
   };
+
+  const handleAddImageToIncident = useCallback(async () => {
+    if (!selectedIncident) return;
+
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Camera permission needed', 'Enable camera access to take a photo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85,
+      });
+
+      if (result.canceled) return;
+
+      const uri = result.assets?.[0]?.uri;
+      if (!uri) return;
+
+      const clientId = selectedIncident.client_id;
+      if (!clientId) {
+        console.warn('handleAddImageToIncident: missing client_id on incident');
+        return;
+      }
+
+      const uploadedImage = await uploadIncidentImage({
+        clientId,
+        incidentId: selectedIncident.id,
+        localUri: uri,
+        buildingId: selectedIncident.building_id,
+        apartmentId: selectedIncident.apartment_id,
+      });
+
+      if (uploadedImage) {
+        setIncidents((prev) =>
+          prev.map((inc) =>
+            inc.id === selectedIncident.id
+              ? {
+                ...inc,
+                images: [...(inc.images ?? []), uploadedImage],
+              }
+              : inc
+          )
+        );
+      }
+    } catch (error) {
+      console.warn('handleAddImageToIncident failed', error);
+      Alert.alert('Image error', 'Could not add image. Please try again.');
+    }
+  }, [selectedIncident, setIncidents]);
 
   const openIncidentImage = async (img: IncidentImage) => {
     if (!img.storage_bucket || !img.storage_path) {
@@ -677,6 +764,24 @@ const ServiceRequestsScreen: React.FC = () => {
             >
               <Text style={styles.detailsTitle}>New service request</Text>
 
+              {capturedPhotoUri ? (
+                <View style={styles.capturedPhotoWrapper}>
+                  <Text style={styles.photoLabel}>Attached photo from camera</Text>
+                  <ExpoImage
+                    source={{ uri: capturedPhotoUri }}
+                    style={styles.capturedPhoto}
+                    contentFit="cover"
+                  />
+                  <TouchableOpacity
+                    style={styles.removePhotoButton}
+                    onPress={() => setCapturedPhotoUri(null)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.removePhotoText}>Remove photo</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
               <Text style={styles.fieldLabel}>Title *</Text>
               <TextInput
                 style={styles.input}
@@ -788,34 +893,16 @@ const ServiceRequestsScreen: React.FC = () => {
               </TouchableOpacity>
             </ScrollView>
           ) : selectedIncident ? (
-          <ScrollView
-            contentContainerStyle={{ paddingBottom: 24 }}
-            showsVerticalScrollIndicator={false}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={() => fetchIncidents(false)} />
-            }
-          >
-            {capturedPhotoUri ? (
-              <View style={styles.capturedPhotoWrapper}>
-                <Text style={styles.photoLabel}>Attached photo from camera</Text>
-                <ExpoImage
-                  source={{ uri: capturedPhotoUri }}
-                  style={styles.capturedPhoto}
-                  contentFit="cover"
-                />
-                <TouchableOpacity
-                  style={styles.removePhotoButton}
-                  onPress={() => setCapturedPhotoUri(null)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.removePhotoText}>Remove photo</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-
-            <Text style={styles.detailsTitle}>{selectedIncident.title}</Text>
+            <ScrollView
+              contentContainerStyle={{ paddingBottom: 24 }}
+              showsVerticalScrollIndicator={false}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={() => fetchIncidents(false)} />
+              }
+            >
+              <Text style={styles.detailsTitle}>{selectedIncident.title}</Text>
               <Text style={styles.detailsStatus}>
                 {selectedIncident.status.replace(/_/g, ' ')} ·{' '}
                 {selectedIncident.category} · {selectedIncident.priority}
@@ -825,39 +912,29 @@ const ServiceRequestsScreen: React.FC = () => {
               )}
 
               {selectedIncident.description ? (
-            <Text style={styles.detailsDescription}>
-              {selectedIncident.description}
-            </Text>
-          ) : null}
+                <Text style={styles.detailsDescription}>
+                  {selectedIncident.description}
+                </Text>
+              ) : null}
 
-          {capturedPhotoUri ? (
-            <View style={styles.capturedPhotoWrapper}>
-              <Text style={styles.photoLabel}>Attached photo from camera</Text>
-              <ExpoImage
-                source={{ uri: capturedPhotoUri }}
-                style={styles.capturedPhoto}
-                contentFit="cover"
-              />
               <TouchableOpacity
-                style={styles.removePhotoButton}
-                onPress={() => setCapturedPhotoUri(null)}
-                activeOpacity={0.8}
+                style={styles.addImageButton}
+                onPress={handleAddImageToIncident}
+                activeOpacity={0.85}
               >
-                <Text style={styles.removePhotoText}>Remove photo</Text>
+                <Text style={styles.addImageButtonText}>Add image</Text>
               </TouchableOpacity>
-            </View>
-          ) : null}
 
-          {renderIncidentImages(selectedIncident)}
+              {renderIncidentImages(selectedIncident)}
 
               {/* Comments */}
               <View style={styles.commentsSection}>
                 <Text style={styles.commentsTitle}>Comments</Text>
-            {selectedIncident.comments &&
-              selectedIncident.comments.length > 0 ? (
-              selectedIncident.comments
-                .slice()
-                .sort(
+                {selectedIncident.comments &&
+                  selectedIncident.comments.length > 0 ? (
+                  selectedIncident.comments
+                    .slice()
+                    .sort(
                       (a, b) =>
                         new Date(a.created_at).getTime() -
                         new Date(b.created_at).getTime()
@@ -1179,6 +1256,19 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   commentButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  addImageButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  addImageButtonText: {
     color: '#fff',
     fontSize: 13,
     fontWeight: '600',
