@@ -1,4 +1,5 @@
 // app/main/announcements.tsx
+import Loader from '@/components/loader';
 import { signFileUrl } from '@/lib/sign-file';
 import { supabase } from '@/lib/supabase';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -6,7 +7,6 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
-  ImageBackground,
   Linking,
   Modal,
   RefreshControl,
@@ -271,18 +271,7 @@ const AnnouncementsScreen: React.FC = () => {
   };
 
   if (loading && announcements.length === 0) {
-    return (
-      <ImageBackground
-        source={require('../../../assets/images/login-bg.png')}
-        style={styles.loaderBackground}
-        resizeMode="cover"
-        blurRadius={6}
-      >
-        <View style={styles.loaderOverlay}>
-          <ActivityIndicator size="large" color={PRIMARY_COLOR} />
-        </View>
-      </ImageBackground>
-    );
+    return <Loader />;
   }
 
   if (error) {
@@ -352,15 +341,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
-  },
-  loaderBackground: {
-    flex: 1,
-  },
-  loaderOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   listContent: {
     paddingHorizontal: 16,

@@ -1,11 +1,11 @@
 import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as NavigationBar from 'expo-navigation-bar';
-import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
+import Loader from '@/components/loader';
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AppState, Platform, Text, View } from 'react-native';
@@ -18,6 +18,10 @@ const Stack = createNativeStackNavigator();
 
 function RootNavigator() {
   const { session, loading } = useAuth();
+
+  if (loading) {
+    return <Loader />;
+  }
 
   return (
     <Stack.Navigator
@@ -48,11 +52,6 @@ function RootNavigator() {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-
-  // Keep the native splash screen visible until we decide to hide it
-  useEffect(() => {
-    SplashScreen.preventAutoHideAsync().catch(() => { });
-  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;

@@ -108,11 +108,11 @@ export const getClientIdFromAuthUser = async (
 
      try {
           // 1) auth user -> tenant row
-          // ⚠️ assumes tblTenants has a column auth_user_id referencing auth.users.id
+          // ⚠️ assumes tblTenants has a column user_id referencing auth.users.id
           const { data: tenant, error: tenantError } = await supabase
                .from('tblTenants')
                .select('id, apartment_id')
-               .eq('auth_user_id', authUserId)
+               .eq('user_id', authUserId)
                .maybeSingle(); // no throw if 0 rows
 
           if (tenantError) {

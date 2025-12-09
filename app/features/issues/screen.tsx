@@ -1,4 +1,5 @@
 // app/main/service-requests.tsx
+import Loader from '@/components/loader';
 import { useAuth } from '@/context/auth-context';
 import { getClientIdFromTenantBuilding } from '@/lib/sb-tenant';
 import { signFileUrl } from '@/lib/sign-file';
@@ -84,7 +85,7 @@ const defaultForm: NewIncidentForm = {
 const ServiceRequestsScreen: React.FC = () => {
   const { session } = useAuth();
   const profileId = session?.user.id ?? null; // TODO: map to tenant profile id if needed
-
+  console.log('Profile ID in ServiceRequestsScreen:', profileId);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -448,11 +449,7 @@ const ServiceRequestsScreen: React.FC = () => {
   };
 
   if (loading && incidents.length === 0) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
+    return <Loader />;
   }
 
   if (error) {
