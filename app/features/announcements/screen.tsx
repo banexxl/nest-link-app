@@ -1,12 +1,16 @@
 // app/main/announcements.tsx
+import BackgroundScreen from '@/components/layouts/background-screen';
 import Loader from '@/components/loader';
+import { useAuth } from '@/context/auth-context';
+import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
+import { getBuildingIdFromUserId } from '@/lib/sb-tenant';
 import { signFileUrl } from '@/lib/sign-file';
 import { supabase } from '@/lib/supabase';
+import { Image as ExpoImage } from 'expo-image';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Linking,
   Modal,
   RefreshControl,
@@ -42,20 +46,82 @@ type Announcement = {
 };
 
 const AnnouncementsScreen: React.FC = () => {
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+
   const { width } = useWindowDimensions();
+  const { handleScroll } = useTabBarScroll();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(10);
   const [error, setError] = useState<string | null>(null);
+
+  const [buildingId, setBuildingId] = useState<string | null>(null);
 
   // cache of signed URLs: key = `${bucket}:${path}`
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
+  // Resolve current tenant's building_id from the authenticated user
+  useEffect(() => {
+    const loadBuilding = async () => {
+      if (!userId) {
+        setError('You must be signed in to view announcements.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const result = await getBuildingIdFromUserId(supabase, userId);
+        if (!result.success || !result.data) {
+          setError(result.error ?? 'Unable to determine building for this tenant.');
+          setBuildingId(null);
+          setLoading(false);
+          return;
+        }
+
+        setBuildingId(result.data.buildingId);
+        setError(null);
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to resolve building for this tenant.');
+        setBuildingId(null);
+        setLoading(false);
+      }
+    };
+
+    loadBuilding();
+  }, [userId]);
+
   const fetchAnnouncements = useCallback(async () => {
+    if (!buildingId) return;
+
     setError(null);
     setLoading(true);
     try {
+      // 1) Find announcement_ids linked to this building via the junction table
+      const { data: linkRows, error: linkError } = await supabase
+        .from('tblBuildings_Announcements')
+        .select('announcement_id')
+        .eq('building_id', buildingId);
+
+      if (linkError) {
+        setError(linkError.message);
+        setAnnouncements([]);
+        return;
+      }
+
+      const ids = (linkRows ?? [])
+        .map((row: any) => row.announcement_id as string | null)
+        .filter((id): id is string => !!id);
+
+      if (!ids.length) {
+        setAnnouncements([]);
+        setVisibleCount(10);
+        return;
+      }
+
+      // 2) Load only those announcements
       const { data, error } = await supabase
         .from('tblAnnouncements')
         .select(`
@@ -79,6 +145,7 @@ const AnnouncementsScreen: React.FC = () => {
             storage_path
           )
         `)
+        .in('id', ids)
         .eq('archived', false)
         .order('pinned', { ascending: false })
         .order('created_at', { ascending: false });
@@ -88,6 +155,7 @@ const AnnouncementsScreen: React.FC = () => {
         setAnnouncements([]);
       } else {
         setAnnouncements((data ?? []) as Announcement[]);
+        setVisibleCount(10);
       }
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load announcements.');
@@ -95,11 +163,13 @@ const AnnouncementsScreen: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [buildingId]);
 
   useEffect(() => {
-    fetchAnnouncements();
-  }, [fetchAnnouncements]);
+    if (buildingId) {
+      fetchAnnouncements();
+    }
+  }, [buildingId, fetchAnnouncements]);
 
   // After announcements load/change, pre-sign all unique storage refs
   useEffect(() => {
@@ -154,23 +224,44 @@ const AnnouncementsScreen: React.FC = () => {
   };
 
   const openImage = async (ref: StorageRef) => {
+    if (!ref.storage_bucket || !ref.storage_path) {
+      console.warn('Announcement image missing storage info', ref);
+      return;
+    }
+
     const key = `${ref.storage_bucket}:${ref.storage_path}`;
+    console.log('openAnnouncementImage called', {
+      key,
+      hasCachedUrl: !!signedUrls[key],
+      bucket: ref.storage_bucket,
+      path: ref.storage_path,
+    });
 
     let url: string | null = signedUrls[key] ?? null;
 
     // Fallback: if we somehow don't have a cached URL (or it became invalid),
     // sign again just for this image.
     if (!url) {
-      url = await signFileUrl({
+      console.log('Signing announcement image on tap', {
         bucket: ref.storage_bucket,
         path: ref.storage_path,
       });
+      url = await signFileUrl({
+        bucket: ref.storage_bucket,
+        path: ref.storage_path,
+        ttlSeconds: 60 * 20,
+      });
 
-      if (!url) return;
+      if (!url) {
+        console.error('Failed to sign announcement image URL', { key });
+        return;
+      }
+
       const nonNullUrl: string = url;
       setSignedUrls((prev) => ({ ...prev, [key]: nonNullUrl }));
     }
 
+    console.log('Setting selectedImageUrl for announcement', { url });
     setSelectedImageUrl(url);
   };
 
@@ -247,10 +338,10 @@ const AnnouncementsScreen: React.FC = () => {
                 >
                   <View style={styles.imageWrapper}>
                     {url ? (
-                      <Image
+                      <ExpoImage
                         source={{ uri: url }}
                         style={styles.imageThumb}
-                        resizeMode="cover"
+                        contentFit="cover"
                       />
                     ) : (
                       <View style={styles.imagePlaceholder}>
@@ -301,14 +392,34 @@ const AnnouncementsScreen: React.FC = () => {
   }
 
   return (
-    <View style={styles.root}>
+    <BackgroundScreen>
+      <View style={styles.headerRow}>
+        <Text style={styles.headerTitle}>Announcements</Text>
+        <Text style={styles.headerMeta}>
+          {announcements.length} total
+        </Text>
+      </View>
+
       <FlatList
-        data={announcements}
+        data={announcements.slice(0, visibleCount)}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         renderItem={renderAnnouncement}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        ListFooterComponent={
+          announcements.length > visibleCount ? (
+            <TouchableOpacity
+              style={styles.loadMoreButton}
+              onPress={() => setVisibleCount((prev) => prev + 10)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.loadMoreText}>Load more</Text>
+            </TouchableOpacity>
+          ) : null
         }
         ListEmptyComponent={
           <View style={styles.center}>
@@ -325,22 +436,42 @@ const AnnouncementsScreen: React.FC = () => {
         onRequestClose={() => setSelectedImageUrl(null)}
       >
         <View style={styles.modalOverlay}>
-          <TouchableOpacity
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setSelectedImageUrl(null)}
-          >
-            {selectedImageUrl && (
-              <Image
-                source={{ uri: selectedImageUrl }}
-                style={styles.modalImage}
-                resizeMode="contain"
-              />
-            )}
-          </TouchableOpacity>
+          {selectedImageUrl && (
+            <>
+              <TouchableOpacity
+                activeOpacity={1}
+                style={styles.modalTouchArea}
+                onPress={() => setSelectedImageUrl(null)}
+              >
+                <ExpoImage
+                  source={{ uri: selectedImageUrl }}
+                  style={styles.modalImage}
+                  contentFit="contain"
+                  onLoad={() =>
+                    console.log('Announcement modal image loaded', {
+                      url: selectedImageUrl,
+                    })
+                  }
+                  onError={(e) =>
+                    console.error('Announcement modal image failed to load', {
+                      url: selectedImageUrl,
+                      error: e,
+                    })
+                  }
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => setSelectedImageUrl(null)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </Modal>
-    </View>
+    </BackgroundScreen>
   );
 };
 
@@ -350,7 +481,7 @@ const styles = StyleSheet.create({
   root: {
     marginTop: 30,
     flex: 1,
-    backgroundColor: '#f4f4f7',
+    backgroundColor: 'transparent',
   },
   center: {
     flex: 1,
@@ -361,6 +492,23 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  headerRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222',
+  },
+  headerMeta: {
+    fontSize: 12,
+    color: '#666',
   },
   card: {
     borderRadius: 18,
@@ -460,6 +608,20 @@ const styles = StyleSheet.create({
     color: '#555',
     textAlign: 'center',
   },
+  loadMoreButton: {
+    marginTop: 8,
+    marginBottom: 16,
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  loadMoreText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
   retryButton: {
     marginTop: 8,
     paddingHorizontal: 14,
@@ -482,5 +644,28 @@ const styles = StyleSheet.create({
   modalImage: {
     width: '100%',
     height: '80%',
+  },
+  modalTouchArea: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 20,
   },
 });

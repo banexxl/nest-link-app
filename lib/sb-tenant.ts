@@ -191,6 +191,41 @@ export const getClientIdFromAuthUser = async (
      }
 };
 
+export const getBuildingIdFromUserId = async (
+     supabase: SupabaseClient,
+     authUserId: string
+): Promise<{
+     success: boolean;
+     data?: {
+          buildingId: string;
+          tenantId: string;
+          apartmentId: string;
+     };
+     error?: string;
+}> => {
+     if (!authUserId || !isUUID(authUserId)) {
+          return { success: false, error: 'Invalid auth user ID' };
+     }
+
+     // Reuse the existing auth-user -> tenant/apartment/building/client resolver
+     const base = await getClientIdFromAuthUser(supabase, authUserId);
+
+     if (!base.success || !base.data) {
+          return { success: false, error: base.error ?? 'Failed to resolve building for user.' };
+     }
+
+     const { buildingId, tenantId, apartmentId } = base.data;
+
+     return {
+          success: true,
+          data: {
+               buildingId,
+               tenantId,
+               apartmentId,
+          },
+     };
+};
+
 export const getTenantAddressFromTenantId = async (
      supabase: SupabaseClient,
      tenantId: string
@@ -281,3 +316,4 @@ export const getTenantAddressFromTenantId = async (
           };
      }
 };
+

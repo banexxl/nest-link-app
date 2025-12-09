@@ -1,15 +1,18 @@
 // app/main/service-requests.tsx
+import BackgroundScreen from '@/components/layouts/background-screen';
 import Loader from '@/components/loader';
 import { useAuth } from '@/context/auth-context';
-import { getClientIdFromTenantBuilding } from '@/lib/sb-tenant';
+import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
+import { getBuildingIdFromUserId, getClientIdFromAuthUser } from '@/lib/sb-tenant';
 import { signFileUrl } from '@/lib/sign-file';
 import { supabase } from '@/lib/supabase';
-import React, { useEffect, useMemo, useState } from 'react';
+import { Image as ExpoImage } from 'expo-image';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   RefreshControl,
   ScrollView,
@@ -17,8 +20,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 const PRIMARY_COLOR = '#f68a00';
 
@@ -86,9 +90,13 @@ const defaultForm: NewIncidentForm = {
 const ServiceRequestsScreen: React.FC = () => {
   const { session } = useAuth();
   const profileId = session?.user.id ?? null; // TODO: map to tenant profile id if needed
+  const { handleScroll } = useTabBarScroll();
+  const route = useRoute<any>();
+  const navigation = useNavigation<any>();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
     null
@@ -102,6 +110,7 @@ const ServiceRequestsScreen: React.FC = () => {
   const [form, setForm] = useState<NewIncidentForm>(defaultForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [capturedPhotoUri, setCapturedPhotoUri] = useState<string | null>(null);
 
   const [commentText, setCommentText] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
@@ -109,15 +118,30 @@ const ServiceRequestsScreen: React.FC = () => {
   // signedUrls cache for images
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [commentAuthors, setCommentAuthors] = useState<Record<string, string>>({});
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+
+  const [buildingId, setBuildingId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchIncidents = async () => {
-      if (!profileId) {
-        setLoading(false);
+    const incomingUri = route.params?.initialPhotoUri as string | undefined;
+    if (incomingUri) {
+      setCreating(true);
+      setSelectedIncidentId(null);
+      setForm(defaultForm);
+      setCapturedPhotoUri(incomingUri);
+      navigation.setParams({ initialPhotoUri: undefined });
+    }
+  }, [route.params?.initialPhotoUri, navigation]);
+
+  const fetchIncidents = useCallback(
+    async (showLoading = true) => {
+      if (!profileId || !buildingId) {
+        if (showLoading) setLoading(false);
+        setRefreshing(false);
         return;
       }
 
-      setLoading(true);
+      if (showLoading) setLoading(true);
       setError(null);
       try {
         const { data, error } = await supabase
@@ -154,6 +178,7 @@ const ServiceRequestsScreen: React.FC = () => {
           )
           // user-specific filter: reported_by
           // .eq('reported_by', profileId)
+          .eq('building_id', buildingId)
           .order('created_at', { ascending: false });
 
         if (error) {
@@ -170,12 +195,54 @@ const ServiceRequestsScreen: React.FC = () => {
         setError(err?.message ?? 'Failed to load service requests.');
         setIncidents([]);
       } finally {
+        if (showLoading) setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [profileId, selectedIncidentId, buildingId]
+  );
+
+  useEffect(() => {
+    if (!profileId) return;
+    // Wait until buildingId is known before fetching
+    if (!buildingId) return;
+    fetchIncidents(true);
+  }, [profileId, buildingId, fetchIncidents]);
+
+  // Resolve tenant's building for filtering incidents
+  useEffect(() => {
+    const loadBuilding = async () => {
+      if (!profileId) {
+        setError('You must be signed in to view service requests.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const result = await getBuildingIdFromUserId(supabase, profileId);
+        if (!result.success || !result.data) {
+          setError(result.error ?? 'Unable to determine building for this tenant.');
+          setBuildingId(null);
+          setLoading(false);
+          return;
+        }
+
+        setBuildingId(result.data.buildingId);
+        setError(null);
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to resolve building for this tenant.');
+        setBuildingId(null);
         setLoading(false);
       }
     };
 
-    fetchIncidents();
+    loadBuilding();
   }, [profileId]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchIncidents(false);
+  };
 
   // pre-sign image urls
   useEffect(() => {
@@ -271,6 +338,7 @@ const ServiceRequestsScreen: React.FC = () => {
     setSelectedIncidentId(id);
     setCreating(false);
     setFormError(null);
+    setCapturedPhotoUri(null);
   };
 
   const handleStartNewRequest = () => {
@@ -278,6 +346,7 @@ const ServiceRequestsScreen: React.FC = () => {
     setSelectedIncidentId(null);
     setForm(defaultForm);
     setFormError(null);
+    setCapturedPhotoUri(null);
   };
 
   const handleChangeForm = <K extends keyof NewIncidentForm>(
@@ -306,8 +375,8 @@ const ServiceRequestsScreen: React.FC = () => {
 
     setSubmitting(true);
     try {
-      // 🔹 FIRST: resolve client + building + apartment from tenant
-      const result = await getClientIdFromTenantBuilding(supabase, profileId);
+      // 🔹 FIRST: resolve client + building + apartment from auth user
+      const result = await getClientIdFromAuthUser(supabase, profileId);
 
       if (!result.success || !result.data) {
         setFormError(result.error ?? 'Could not resolve client/building for this tenant.');
@@ -373,6 +442,7 @@ const ServiceRequestsScreen: React.FC = () => {
         setCreating(false);
         setSelectedIncidentId(newIncident.id);
         setForm(defaultForm);
+        setCapturedPhotoUri(null);
       }
     } catch (err: any) {
       setFormError(err?.message ?? 'Failed to create service request.');
@@ -458,6 +528,37 @@ const ServiceRequestsScreen: React.FC = () => {
     );
   };
 
+  const openIncidentImage = async (img: IncidentImage) => {
+    if (!img.storage_bucket || !img.storage_path) {
+      console.warn('Incident image missing storage info', img);
+      return;
+    }
+
+    const key = `${img.storage_bucket}:${img.storage_path}`;
+
+    // 1) Prefer an already working URL
+    let url: any = signedUrls[key] ?? null;
+
+    // 2) If we don’t have it yet, sign it once
+    if (!url) {
+      url = await signFileUrl({
+        bucket: img.storage_bucket,
+        path: img.storage_path,
+        ttlSeconds: 60 * 20,
+      });
+
+      if (!url) {
+        console.error('openIncidentImage failed to sign URL', { key });
+        return;
+      }
+
+      setSignedUrls((prev) => ({ ...prev, [key]: url! }));
+    }
+
+    setSelectedImageUrl(url);
+  };
+
+
   const renderIncidentImages = (incident: Incident) => {
     if (!incident.images || incident.images.length === 0) {
       return null;
@@ -473,19 +574,24 @@ const ServiceRequestsScreen: React.FC = () => {
           const key = `${img.storage_bucket}:${img.storage_path}`;
           const url = signedUrls[key];
           return (
-            <View key={img.id} style={{ marginRight: 8 }}>
+            <TouchableOpacity
+              key={img.id}
+              style={{ marginRight: 8 }}
+              onPress={() => openIncidentImage(img)}
+              activeOpacity={0.85}
+            >
               {url ? (
-                <Image
+                <ExpoImage
                   source={{ uri: url }}
                   style={styles.imageThumb}
-                  resizeMode="cover"
+                  contentFit="cover"
                 />
               ) : (
                 <View style={styles.imagePlaceholder}>
                   <ActivityIndicator size="small" />
                 </View>
               )}
-            </View>
+            </TouchableOpacity>
           );
         })}
       </ScrollView>
@@ -493,92 +599,135 @@ const ServiceRequestsScreen: React.FC = () => {
   };
 
   if (loading && incidents.length === 0) {
-    return <Loader />;
+    return (
+      <BackgroundScreen>
+        <Loader />
+      </BackgroundScreen>
+    );
   }
 
   if (error) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>{error}</Text>
-      </View>
+      <BackgroundScreen>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      </BackgroundScreen>
     );
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      {/* Header + New Request button */}
-      <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>Service requests</Text>
-        <TouchableOpacity
-          style={styles.newButton}
-          onPress={handleStartNewRequest}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.newButtonText}>New request</Text>
-        </TouchableOpacity>
+    <BackgroundScreen>
+      <View style={styles.pageHeaderRow}>
+        <Text style={styles.pageHeaderTitle}>Service requests</Text>
+        <Text style={styles.pageHeaderMeta}>{incidents.length} total</Text>
       </View>
+      <KeyboardAvoidingView
+        style={styles.root}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {/* Header + list card */}
+        <View style={styles.listCard}>
+          <View style={styles.headerRow}>
+            <Text style={styles.headerTitle}>Service requests</Text>
+            <TouchableOpacity
+              style={styles.newButton}
+              onPress={handleStartNewRequest}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.newButtonText}>New request</Text>
+            </TouchableOpacity>
+          </View>
 
-      {/* Left side: list */}
-      <View style={styles.listContainer}>
-        {incidents.length > 0 ? (
-          <FlatList
-            data={incidents}
-            keyExtractor={(item) => item.id}
-            renderItem={renderIncidentItem}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingRight: 12 }}
-          />
-        ) : (
-          <Text style={styles.emptyText}>
-            You have not submitted any service requests yet.
-          </Text>
-        )}
-      </View>
+          <View style={styles.listContainer}>
+            {incidents.length > 0 ? (
+              <FlatList
+                data={incidents}
+                keyExtractor={(item) => item.id}
+                renderItem={renderIncidentItem}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingRight: 12 }}
+              />
+            ) : (
+              <Text style={styles.emptyText}>
+                You have not submitted any service requests yet.
+              </Text>
+            )}
+          </View>
+        </View>
 
-      {/* Right / bottom: details or new form */}
-      <View style={styles.detailsContainer}>
-        {creating ? (
-          <ScrollView
-            contentContainerStyle={{ paddingBottom: 24 }}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.detailsTitle}>New service request</Text>
+        {/* Details / new request card */}
+        <View style={styles.detailsCard}>
+          {creating ? (
+            <ScrollView
+              contentContainerStyle={{ paddingBottom: 24 }}
+              showsVerticalScrollIndicator={false}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={() => fetchIncidents(false)} />
+              }
+            >
+              <Text style={styles.detailsTitle}>New service request</Text>
 
-            <Text style={styles.fieldLabel}>Title *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Short title (e.g. Water leak in bathroom)"
-              value={form.title}
-              onChangeText={(val) => handleChangeForm('title', val)}
-            />
+              <Text style={styles.fieldLabel}>Title *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Short title (e.g. Water leak in bathroom)"
+                value={form.title}
+                onChangeText={(val) => handleChangeForm('title', val)}
+              />
 
-            <Text style={styles.fieldLabel}>Description *</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Describe the problem in detail"
-              value={form.description}
-              onChangeText={(val) => handleChangeForm('description', val)}
-              multiline
-            />
+              <Text style={styles.fieldLabel}>Description *</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Describe the problem in detail"
+                value={form.description}
+                onChangeText={(val) => handleChangeForm('description', val)}
+                multiline
+              />
 
-            <Text style={styles.fieldLabel}>Category</Text>
-            <View style={styles.chipRow}>
-              {['plumbing', 'electrical', 'heating', 'common_area', 'other'].map(
-                (cat) => {
-                  const isSelected = form.category === cat;
+              <Text style={styles.fieldLabel}>Category</Text>
+              <View style={styles.chipRow}>
+                {['plumbing', 'electrical', 'heating', 'common_area', 'other'].map(
+                  (cat) => {
+                    const isSelected = form.category === cat;
+                    return (
+                      <TouchableOpacity
+                        key={cat}
+                        style={[
+                          styles.chip,
+                          isSelected && styles.chipSelected,
+                        ]}
+                        onPress={() =>
+                          handleChangeForm('category', cat as IncidentCategory)
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isSelected && styles.chipTextSelected,
+                          ]}
+                        >
+                          {cat.replace('_', ' ')}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                )}
+              </View>
+
+              <Text style={styles.fieldLabel}>Priority</Text>
+              <View style={styles.chipRow}>
+                {['low', 'medium', 'high', 'urgent'].map((p) => {
+                  const isSelected = form.priority === p;
                   return (
                     <TouchableOpacity
-                      key={cat}
-                      style={[
-                        styles.chip,
-                        isSelected && styles.chipSelected,
-                      ]}
+                      key={p}
+                      style={[styles.chip, isSelected && styles.chipSelected]}
                       onPress={() =>
-                        handleChangeForm('category', cat as IncidentCategory)
+                        handleChangeForm('priority', p as IncidentPriority)
                       }
                     >
                       <Text
@@ -587,171 +736,230 @@ const ServiceRequestsScreen: React.FC = () => {
                           isSelected && styles.chipTextSelected,
                         ]}
                       >
-                        {cat.replace('_', ' ')}
+                        {p}
                       </Text>
                     </TouchableOpacity>
                   );
-                }
-              )}
-            </View>
-
-            <Text style={styles.fieldLabel}>Priority</Text>
-            <View style={styles.chipRow}>
-              {['low', 'medium', 'high', 'urgent'].map((p) => {
-                const isSelected = form.priority === p;
-                return (
-                  <TouchableOpacity
-                    key={p}
-                    style={[styles.chip, isSelected && styles.chipSelected]}
-                    onPress={() =>
-                      handleChangeForm('priority', p as IncidentPriority)
-                    }
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        isSelected && styles.chipTextSelected,
-                      ]}
-                    >
-                      {p}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <TouchableOpacity
-              style={styles.toggleRow}
-              onPress={() =>
-                handleChangeForm('is_emergency', !form.is_emergency)
-              }
-              activeOpacity={0.85}
-            >
-              <View
-                style={[
-                  styles.checkboxOuter,
-                  form.is_emergency && styles.checkboxOuterSelected,
-                ]}
-              >
-                {form.is_emergency && <View style={styles.checkboxInner} />}
+                })}
               </View>
-              <Text style={styles.toggleLabel}>This is an emergency</Text>
-            </TouchableOpacity>
 
-            {formError ? (
-              <Text style={styles.formError}>{formError}</Text>
-            ) : null}
+              <TouchableOpacity
+                style={styles.toggleRow}
+                onPress={() =>
+                  handleChangeForm('is_emergency', !form.is_emergency)
+                }
+                activeOpacity={0.85}
+              >
+                <View
+                  style={[
+                    styles.checkboxOuter,
+                    form.is_emergency && styles.checkboxOuterSelected,
+                  ]}
+                >
+                  {form.is_emergency && <View style={styles.checkboxInner} />}
+                </View>
+                <Text style={styles.toggleLabel}>This is an emergency</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.submitButton,
-                submitting && styles.submitButtonDisabled,
-              ]}
-              onPress={handleSubmitNewIncident}
-              disabled={submitting}
-              activeOpacity={0.85}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitButtonText}>Submit request</Text>
-              )}
-            </TouchableOpacity>
-          </ScrollView>
-        ) : selectedIncident ? (
+              {formError ? (
+                <Text style={styles.formError}>{formError}</Text>
+              ) : null}
+
+              <TouchableOpacity
+                style={[
+                  styles.submitButton,
+                  submitting && styles.submitButtonDisabled,
+                ]}
+                onPress={handleSubmitNewIncident}
+                disabled={submitting}
+                activeOpacity={0.85}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.submitButtonText}>Submit request</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          ) : selectedIncident ? (
           <ScrollView
             contentContainerStyle={{ paddingBottom: 24 }}
             showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={() => fetchIncidents(false)} />
+            }
           >
-            <Text style={styles.detailsTitle}>{selectedIncident.title}</Text>
-            <Text style={styles.detailsStatus}>
-              {selectedIncident.status.replace(/_/g, ' ')} ·{' '}
-              {selectedIncident.category} · {selectedIncident.priority}
-            </Text>
-            {selectedIncident.is_emergency && (
-              <Text style={styles.emergencyLabel}>Emergency</Text>
-            )}
-
-            {selectedIncident.description ? (
-              <Text style={styles.detailsDescription}>
-                {selectedIncident.description}
-              </Text>
+            {capturedPhotoUri ? (
+              <View style={styles.capturedPhotoWrapper}>
+                <Text style={styles.photoLabel}>Attached photo from camera</Text>
+                <ExpoImage
+                  source={{ uri: capturedPhotoUri }}
+                  style={styles.capturedPhoto}
+                  contentFit="cover"
+                />
+                <TouchableOpacity
+                  style={styles.removePhotoButton}
+                  onPress={() => setCapturedPhotoUri(null)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.removePhotoText}>Remove photo</Text>
+                </TouchableOpacity>
+              </View>
             ) : null}
 
-            {renderIncidentImages(selectedIncident)}
-
-            {/* Comments */}
-            <View style={styles.commentsSection}>
-              <Text style={styles.commentsTitle}>Comments</Text>
-              {selectedIncident.comments &&
-                selectedIncident.comments.length > 0 ? (
-                selectedIncident.comments
-                  .slice()
-                  .sort(
-                    (a, b) =>
-                      new Date(a.created_at).getTime() -
-                      new Date(b.created_at).getTime()
-                  )
-                  .map((c) => (
-                    <View key={c.id} style={styles.commentCard}>
-                      <Text style={styles.commentAuthor}>
-                        {c.user_id && commentAuthors[c.user_id]
-                          ? commentAuthors[c.user_id]
-                          : c.user_id === profileId
-                            ? ((session?.user.user_metadata?.full_name as string | undefined) ||
-                              (session?.user.user_metadata?.name as string | undefined) ||
-                              session?.user.email ||
-                              'You')
-                            : 'Unknown user'}
-                      </Text>
-                      <Text style={styles.commentMeta}>
-                        {new Date(c.created_at).toLocaleString()}
-                      </Text>
-                      <Text style={styles.commentText}>
-                        {c.message ?? ''}
-                      </Text>
-                    </View>
-                  ))
-              ) : (
-                <Text style={styles.emptyText}>
-                  No comments yet. You can add one below.
-                </Text>
+            <Text style={styles.detailsTitle}>{selectedIncident.title}</Text>
+              <Text style={styles.detailsStatus}>
+                {selectedIncident.status.replace(/_/g, ' ')} ·{' '}
+                {selectedIncident.category} · {selectedIncident.priority}
+              </Text>
+              {selectedIncident.is_emergency && (
+                <Text style={styles.emergencyLabel}>Emergency</Text>
               )}
 
-              {/* Add comment */}
-              <TextInput
-                style={[styles.input, styles.commentInput]}
-                placeholder="Add a comment..."
-                value={commentText}
-                onChangeText={setCommentText}
-                multiline
+              {selectedIncident.description ? (
+            <Text style={styles.detailsDescription}>
+              {selectedIncident.description}
+            </Text>
+          ) : null}
+
+          {capturedPhotoUri ? (
+            <View style={styles.capturedPhotoWrapper}>
+              <Text style={styles.photoLabel}>Attached photo from camera</Text>
+              <ExpoImage
+                source={{ uri: capturedPhotoUri }}
+                style={styles.capturedPhoto}
+                contentFit="cover"
               />
               <TouchableOpacity
-                style={[
-                  styles.commentButton,
-                  commentSubmitting && styles.commentButtonDisabled,
-                ]}
-                onPress={handleSubmitComment}
-                disabled={commentSubmitting || !commentText.trim()}
-                activeOpacity={0.85}
+                style={styles.removePhotoButton}
+                onPress={() => setCapturedPhotoUri(null)}
+                activeOpacity={0.8}
               >
-                {commentSubmitting ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.commentButtonText}>Post comment</Text>
-                )}
+                <Text style={styles.removePhotoText}>Remove photo</Text>
               </TouchableOpacity>
             </View>
-          </ScrollView>
-        ) : (
-          <View style={styles.center}>
-            <Text style={styles.emptyText}>
-              Select a service request from the list above or create a new one.
-            </Text>
-          </View>
-        )}
-      </View>
-    </KeyboardAvoidingView>
+          ) : null}
+
+          {renderIncidentImages(selectedIncident)}
+
+              {/* Comments */}
+              <View style={styles.commentsSection}>
+                <Text style={styles.commentsTitle}>Comments</Text>
+            {selectedIncident.comments &&
+              selectedIncident.comments.length > 0 ? (
+              selectedIncident.comments
+                .slice()
+                .sort(
+                      (a, b) =>
+                        new Date(a.created_at).getTime() -
+                        new Date(b.created_at).getTime()
+                    )
+                    .map((c) => (
+                      <View key={c.id} style={styles.commentCard}>
+                        <Text style={styles.commentAuthor}>
+                          {c.user_id && commentAuthors[c.user_id]
+                            ? commentAuthors[c.user_id]
+                            : c.user_id === profileId
+                              ? ((session?.user.user_metadata?.full_name as string | undefined) ||
+                                (session?.user.user_metadata?.name as string | undefined) ||
+                                session?.user.email ||
+                                'You')
+                              : 'Unknown user'}
+                        </Text>
+                        <Text style={styles.commentMeta}>
+                          {new Date(c.created_at).toLocaleString()}
+                        </Text>
+                        <Text style={styles.commentText}>
+                          {c.message ?? ''}
+                        </Text>
+                      </View>
+                    ))
+                ) : (
+                  <Text style={styles.emptyText}>
+                    No comments yet. You can add one below.
+                  </Text>
+                )}
+
+                {/* Add comment */}
+                <TextInput
+                  style={[styles.input, styles.commentInput]}
+                  placeholder="Add a comment..."
+                  value={commentText}
+                  onChangeText={setCommentText}
+                  multiline
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.commentButton,
+                    commentSubmitting && styles.commentButtonDisabled,
+                  ]}
+                  onPress={handleSubmitComment}
+                  disabled={commentSubmitting || !commentText.trim()}
+                  activeOpacity={0.85}
+                >
+                  {commentSubmitting ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.commentButtonText}>Post comment</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          ) : (
+            <View style={styles.center}>
+              <Text style={styles.emptyText}>
+                Select a service request from the list above or create a new one.
+              </Text>
+            </View>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+
+      {/* Fullscreen image viewer */}
+      <Modal
+        visible={!!selectedImageUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedImageUrl(null)}
+      >
+        <View style={styles.modalOverlay}>
+          {selectedImageUrl && (
+            <>
+              <TouchableOpacity
+                activeOpacity={1}
+                style={styles.modalTouchArea}
+                onPress={() => setSelectedImageUrl(null)}
+              >
+                <ExpoImage
+                  source={{ uri: selectedImageUrl }}
+                  style={styles.modalImage}
+                  contentFit="contain"
+                  onLoad={() =>
+                    console.log('Incident modal image loaded', { url: selectedImageUrl })
+                  }
+                  onError={(e) =>
+                    console.error('Incident modal image failed to load', {
+                      url: selectedImageUrl,
+                      error: e,
+                    })
+                  }
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => setSelectedImageUrl(null)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </Modal>
+
+    </BackgroundScreen>
   );
 };
 
@@ -761,13 +969,29 @@ const styles = StyleSheet.create({
   root: {
     marginTop: 30,
     flex: 1,
-    backgroundColor: '#f4f4f7',
+    backgroundColor: 'transparent',
   },
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+  },
+  pageHeaderRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pageHeaderTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222',
+  },
+  pageHeaderMeta: {
+    fontSize: 12,
+    color: '#666',
   },
   headerRow: {
     flexDirection: 'row',
@@ -793,11 +1017,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  listContainer: {
+  listCard: {
+    marginHorizontal: 16,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: 16,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  listContainer: {
+    paddingTop: 4,
+    paddingBottom: 2,
   },
   incidentCard: {
     width: 230,
@@ -843,10 +1077,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#666',
   },
-  detailsContainer: {
+  detailsCard: {
     flex: 1,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 16,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+    elevation: 2,
   },
   detailsTitle: {
     fontSize: 17,
@@ -1023,6 +1267,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#d00',
   },
+  capturedPhotoWrapper: {
+    marginTop: 10,
+    marginBottom: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f7f7fb',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  photoLabel: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 4,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+  },
+  capturedPhoto: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#ddd',
+  },
+  removePhotoButton: {
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  removePhotoText: {
+    color: PRIMARY_COLOR,
+    fontWeight: '600',
+    fontSize: 13,
+  },
   submitButton: {
     marginTop: 10,
     borderRadius: 18,
@@ -1037,5 +1312,39 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  modalImage: {
+    width: '100%',
+    height: '80%',
+  },
+  modalTouchArea: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 20,
   },
 });

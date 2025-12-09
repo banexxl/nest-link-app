@@ -1,18 +1,23 @@
 // app/main/polls.tsx
+import BackgroundScreen from '@/components/layouts/background-screen';
 import { useAuth } from '@/context/auth-context';
+import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
+import { getBuildingIdFromUserId } from '@/lib/sb-tenant';
 import { signFileUrl } from '@/lib/sign-file';
 import { supabase } from '@/lib/supabase';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Linking,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { PieChart } from 'react-native-gifted-charts';
 
 const PRIMARY_COLOR = '#f68a00';
 
@@ -49,13 +54,29 @@ type PollVote = {
   abstain: boolean;
 };
 
+type PollResults = {
+  options: {
+    optionId: string;
+    label: string;
+    count: number;
+    percentage: number;
+    color: string;
+  }[];
+  abstainCount: number;
+  abstainPercentage: number;
+  totalSelections: number;
+};
+
 const PollsScreen: React.FC = () => {
-  const { tenantId } = useAuth();
-  const userId = tenantId ?? null; // use tenant id for FK to tblTenants
+  const { session, tenantId } = useAuth();
+  const { handleScroll } = useTabBarScroll();
+  const tenantPk = tenantId ?? null; // FK to tblTenants in votes
+  const authUserId = session?.user.id ?? null;
 
   const [polls, setPolls] = useState<Poll[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
   const selectedPoll = useMemo(
@@ -69,11 +90,18 @@ const PollsScreen: React.FC = () => {
   const [voteMessage, setVoteMessage] = useState<string | null>(null);
 
   const [existingVote, setExistingVote] = useState<PollVote | null>(null);
+  // aggregated results for closed polls
+  const [pollResults, setPollResults] = useState<PollResults | null>(null);
+  const [resultsLoading, setResultsLoading] = useState(false);
 
-  // Load polls (only active/open)
-  useEffect(() => {
-    const fetchPolls = async () => {
-      setLoading(true);
+  const [buildingId, setBuildingId] = useState<string | null>(null);
+
+  // Load polls (active + closed)
+  const fetchPolls = useCallback(
+    async (showLoading = true) => {
+      if (!buildingId) return;
+
+      if (showLoading) setLoading(true);
       setError(null);
       try {
         const { data, error } = await supabase
@@ -104,8 +132,9 @@ const PollsScreen: React.FC = () => {
             )
           `
           )
-          // ⬇️ adjust these filters to your enum / RLS logic
-          .eq('status', 'active') // or 'active' / 'published' depending on poll_status enum
+          // Load both active and closed polls for this building
+          .in('status', ['active', 'closed'])
+          .eq('building_id', buildingId)
           .order('starts_at', { ascending: true });
 
         if (error) {
@@ -114,7 +143,6 @@ const PollsScreen: React.FC = () => {
         } else {
           const result = (data ?? []) as Poll[];
           setPolls(result);
-          // auto-select first poll if none selected
           if (!selectedPollId && result.length > 0) {
             setSelectedPollId(result[0].id);
           }
@@ -123,17 +151,58 @@ const PollsScreen: React.FC = () => {
         setError(err?.message ?? 'Failed to load polls.');
         setPolls([]);
       } finally {
+        if (showLoading) setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [selectedPollId, buildingId]
+  );
+
+  useEffect(() => {
+    if (buildingId) {
+      fetchPolls(true);
+    }
+  }, [buildingId, fetchPolls]);
+
+  // Resolve tenant's building for filtering polls
+  useEffect(() => {
+    const loadBuilding = async () => {
+      if (!authUserId) {
+        setError('You must be signed in to view polls.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const result = await getBuildingIdFromUserId(supabase, authUserId);
+        if (!result.success || !result.data) {
+          setError(result.error ?? 'Unable to determine building for this tenant.');
+          setBuildingId(null);
+          setLoading(false);
+          return;
+        }
+
+        setBuildingId(result.data.buildingId);
+        setError(null);
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to resolve building for this tenant.');
+        setBuildingId(null);
         setLoading(false);
       }
     };
 
-    fetchPolls();
-  }, []);
+    loadBuilding();
+  }, [authUserId]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchPolls(false);
+  };
 
   // When poll changes, reset vote UI & load existing vote (if any)
   useEffect(() => {
     const loadExistingVote = async () => {
-      if (!selectedPoll || !userId) {
+      if (!selectedPoll || !tenantPk) {
         setExistingVote(null);
         setSelectedOptionId(null);
         setAbstain(false);
@@ -145,7 +214,7 @@ const PollsScreen: React.FC = () => {
           .from('tblPollVotes')
           .select('id, choice_option_ids, abstain')
           .eq('poll_id', selectedPoll.id)
-          .eq('tenant_id', userId) // TODO: if you use tenants table, replace with tenant id
+          .eq('tenant_id', tenantPk)
           .maybeSingle();
 
         if (error && error.code !== 'PGRST116') {
@@ -164,7 +233,7 @@ const PollsScreen: React.FC = () => {
           setSelectedOptionId(null);
           setAbstain(false);
         }
-      } catch (err) {
+      } catch {
         setExistingVote(null);
         setSelectedOptionId(null);
         setAbstain(false);
@@ -173,7 +242,128 @@ const PollsScreen: React.FC = () => {
 
     loadExistingVote();
     setVoteMessage(null);
-  }, [selectedPoll, userId]);
+  }, [selectedPoll, tenantPk]);
+
+  // Load aggregated results when a closed poll is selected
+  useEffect(() => {
+    const loadResults = async () => {
+      if (!selectedPoll) {
+        setPollResults(null);
+        return;
+      }
+
+      const hasEnded =
+        !!selectedPoll.ends_at &&
+        new Date(selectedPoll.ends_at).getTime() < Date.now();
+      const isClosed = selectedPoll.status === 'closed' || hasEnded;
+
+      if (!isClosed) {
+        setPollResults(null);
+        return;
+      }
+
+      try {
+        setResultsLoading(true);
+
+        const { data, error } = await supabase
+          .from('tblPollVotes')
+          .select('choice_option_ids, abstain')
+          .eq('poll_id', selectedPoll.id);
+
+        if (error) {
+          console.log('Error loading poll results:', error);
+          setPollResults(null);
+          return;
+        }
+
+        const votes = (data ?? []) as { choice_option_ids: string[] | null; abstain: boolean }[];
+
+        if (!votes.length || !selectedPoll.poll_options || !selectedPoll.poll_options.length) {
+          setPollResults(null);
+          return;
+        }
+
+        const optionMap: Record<
+          string,
+          { optionId: string; label: string; count: number }
+        > = {};
+
+        selectedPoll.poll_options.forEach((opt) => {
+          optionMap[opt.id] = {
+            optionId: opt.id,
+            label: opt.label,
+            count: 0,
+          };
+        });
+
+        let totalSelections = 0;
+        let abstainCount = 0;
+
+        votes.forEach((v) => {
+          if (v.abstain) {
+            abstainCount += 1;
+            return;
+          }
+          (v.choice_option_ids ?? []).forEach((id) => {
+            if (!optionMap[id]) {
+              // unknown option id; skip
+              return;
+            }
+            optionMap[id].count += 1;
+            totalSelections += 1;
+          });
+        });
+
+        const grandTotal = totalSelections + abstainCount;
+        if (grandTotal === 0) {
+          setPollResults(null);
+          return;
+        }
+
+        const baseColors = [
+          '#FF6B6B',
+          '#4ECDC4',
+          '#FFD93D',
+          '#1A535C',
+          '#FF9F1C',
+          '#9B5DE5',
+          '#00BBF9',
+          '#F15BB5',
+        ];
+
+        const options = Object.values(optionMap)
+          .filter((o) => o.count > 0)
+          .map((o, index) => {
+            const percentage = (o.count / grandTotal) * 100;
+            const color = baseColors[index % baseColors.length];
+            return {
+              optionId: o.optionId,
+              label: o.label,
+              count: o.count,
+              percentage,
+              color,
+            };
+          });
+
+        const abstainPercentage =
+          abstainCount > 0 ? (abstainCount / grandTotal) * 100 : 0;
+
+        setPollResults({
+          options,
+          abstainCount,
+          abstainPercentage,
+          totalSelections: grandTotal,
+        });
+      } catch (err) {
+        console.log('Unexpected error loading poll results:', err);
+        setPollResults(null);
+      } finally {
+        setResultsLoading(false);
+      }
+    };
+
+    loadResults();
+  }, [selectedPoll]);
 
   const handleSelectPoll = (pollId: string) => {
     setSelectedPollId(pollId);
@@ -212,7 +402,7 @@ const PollsScreen: React.FC = () => {
   };
 
   const handleSubmitVote = async () => {
-    if (!selectedPoll || !userId) return;
+    if (!selectedPoll || !tenantPk) return;
 
     setVoteMessage(null);
 
@@ -237,7 +427,7 @@ const PollsScreen: React.FC = () => {
         abstain: boolean;
       } = {
         poll_id: selectedPoll.id,
-        tenant_id: userId,
+        tenant_id: tenantPk,
         choice_option_ids:
           abstain ? null : selectedOptionId ? [selectedOptionId] : null,
         abstain,
@@ -311,6 +501,13 @@ const PollsScreen: React.FC = () => {
     );
   };
 
+  const hasSelectedPollEnded = selectedPoll
+    ? !!selectedPoll.ends_at &&
+    new Date(selectedPoll.ends_at).getTime() < Date.now()
+    : false;
+  const isSelectedPollClosed =
+    !!selectedPoll && (selectedPoll.status === 'closed' || hasSelectedPollEnded);
+
   const renderOption = (option: { id: string; label: string; sort_order: number }) => {
     const isSelected = option.id === selectedOptionId;
     return (
@@ -335,17 +532,32 @@ const PollsScreen: React.FC = () => {
 
   if (error) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>{error}</Text>
-      </View>
+      <BackgroundScreen>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      </BackgroundScreen>
+    );
+  }
+
+  if (loading && polls.length === 0) {
+    return (
+      <BackgroundScreen>
+        <View style={styles.center}>
+          <ActivityIndicator />
+        </View>
+      </BackgroundScreen>
     );
   }
 
   return (
-    <View style={styles.root}>
-      {/* Poll list */}
-      <View style={styles.pollListContainer}>
-        <Text style={styles.sectionTitle}>Active polls</Text>
+    <BackgroundScreen>
+      <View style={styles.headerRow}>
+        <Text style={styles.headerTitle}>Polls</Text>
+        <Text style={styles.headerMeta}>{polls.length} polls</Text>
+      </View>
+      {/* Poll list card */}
+      <View style={styles.pollListCard}>
         {polls.length > 0 ? (
           <FlatList
             data={polls}
@@ -356,18 +568,26 @@ const PollsScreen: React.FC = () => {
             contentContainerStyle={{ paddingRight: 12 }}
           />
         ) : (
-          <Text style={styles.emptyText}>No active polls.</Text>
+          <Text style={styles.emptyText}>No polls yet.</Text>
         )}
       </View>
 
-      {/* Selected poll details */}
-      <View style={styles.detailsContainer}>
+      {/* Selected poll details card */}
+      <View style={styles.detailsCard}>
         {selectedPoll ? (
           <ScrollView
             contentContainerStyle={{ paddingBottom: 24 }}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            }
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
           >
             <Text style={styles.detailsTitle}>{selectedPoll.title}</Text>
+            {isSelectedPollClosed && (
+              <Text style={styles.detailsClosedLabel}>This poll is closed.</Text>
+            )}
             {selectedPoll.description ? (
               <Text style={styles.detailsDescription}>
                 {selectedPoll.description}
@@ -394,83 +614,170 @@ const PollsScreen: React.FC = () => {
                 </View>
               )}
 
-            {/* Options */}
-            <View style={styles.optionsSection}>
-              <Text style={styles.optionsTitle}>Options</Text>
-              {selectedPoll.poll_options &&
-                selectedPoll.poll_options.length > 0 ? (
-                selectedPoll.poll_options
-                  .slice()
-                  .sort((a, b) => a.sort_order - b.sort_order)
-                  .map(renderOption)
-              ) : (
-                <Text style={styles.emptyText}>
-                  No options defined for this poll.
-                </Text>
-              )}
-            </View>
-
-            {/* Abstain */}
-            {selectedPoll.allow_abstain && (
-              <TouchableOpacity
-                style={styles.abstainRow}
-                onPress={handleToggleAbstain}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    styles.checkboxOuter,
-                    abstain && styles.checkboxOuterSelected,
-                  ]}
-                >
-                  {abstain && <View style={styles.checkboxInner} />}
+            {/* Options / voting or results */}
+            {!isSelectedPollClosed ? (
+              <>
+                <View style={styles.optionsSection}>
+                  <Text style={styles.optionsTitle}>Options</Text>
+                  {selectedPoll.poll_options &&
+                    selectedPoll.poll_options.length > 0 ? (
+                    selectedPoll.poll_options
+                      .slice()
+                      .sort((a, b) => a.sort_order - b.sort_order)
+                      .map(renderOption)
+                  ) : (
+                    <Text style={styles.emptyText}>
+                      No options defined for this poll.
+                    </Text>
+                  )}
                 </View>
-                <Text style={styles.abstainLabel}>Abstain from voting</Text>
-              </TouchableOpacity>
+
+                {selectedPoll.allow_abstain && (
+                  <TouchableOpacity
+                    style={styles.abstainRow}
+                    onPress={handleToggleAbstain}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.checkboxOuter,
+                        abstain && styles.checkboxOuterSelected,
+                      ]}
+                    >
+                      {abstain && <View style={styles.checkboxInner} />}
+                    </View>
+                    <Text style={styles.abstainLabel}>Abstain from voting</Text>
+                  </TouchableOpacity>
+                )}
+
+                {voteMessage ? (
+                  <Text
+                    style={[
+                      styles.voteMessage,
+                      voteMessage.includes('recorded')
+                        ? styles.voteMessageSuccess
+                        : styles.voteMessageError,
+                    ]}
+                  >
+                    {voteMessage}
+                  </Text>
+                ) : null}
+
+                <TouchableOpacity
+                  style={[
+                    styles.voteButton,
+                    submitting && styles.voteButtonDisabled,
+                  ]}
+                  onPress={handleSubmitVote}
+                  disabled={submitting}
+                  activeOpacity={0.85}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.voteButtonText}>
+                      {existingVote ? 'Update vote' : 'Submit vote'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <View style={styles.resultsSection}>
+                  <Text style={styles.resultsTitle}>Results</Text>
+                  {resultsLoading ? (
+                    <ActivityIndicator style={{ marginTop: 8 }} />
+                  ) : pollResults ? (
+                    <View style={styles.resultsRow}>
+                      {(() => {
+                        const allSlices = [
+                          ...pollResults.options,
+                          ...(pollResults.abstainCount > 0
+                            ? [
+                              {
+                                optionId: 'abstain',
+                                label: 'Abstain',
+                                count: pollResults.abstainCount,
+                                percentage: pollResults.abstainPercentage,
+                                color: '#CCCCCC',
+                              },
+                            ]
+                            : []),
+                        ];
+
+                        const data = allSlices.map((slice) => ({
+                          value: slice.count,
+                          color: slice.color,
+                        }));
+
+                        return (
+                          <View style={styles.resultsBarContainer}>
+                            <PieChart data={data} radius={70} />
+                          </View>
+                        );
+                      })()}
+                      <View style={styles.resultsLegend}>
+                        {pollResults.options.map((opt) => (
+                          <View
+                            key={opt.optionId}
+                            style={styles.legendRow}
+                          >
+                            <View
+                              style={[
+                                styles.legendColor,
+                                { backgroundColor: opt.color },
+                              ]}
+                            />
+                            <Text style={styles.legendLabel}>
+                              {opt.label} — {opt.count} (
+                              {opt.percentage.toFixed(1)}%)
+                            </Text>
+                          </View>
+                        ))}
+                        {pollResults.abstainCount > 0 && (
+                          <View style={styles.legendRow}>
+                            <View
+                              style={[
+                                styles.legendColor,
+                                { backgroundColor: '#CCCCCC' },
+                              ]}
+                            />
+                            <Text style={styles.legendLabel}>
+                              Abstain — {pollResults.abstainCount} (
+                              {pollResults.abstainPercentage.toFixed(1)}%)
+                            </Text>
+                          </View>
+                        )}
+                        <Text style={styles.resultsTotal}>
+                          Total selections: {pollResults.totalSelections}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={styles.emptyText}>
+                      No votes recorded for this poll yet.
+                    </Text>
+                  )}
+                </View>
+              </>
             )}
-
-            {/* Vote message */}
-            {voteMessage ? (
-              <Text
-                style={[
-                  styles.voteMessage,
-                  voteMessage.includes('recorded')
-                    ? styles.voteMessageSuccess
-                    : styles.voteMessageError,
-                ]}
-              >
-                {voteMessage}
-              </Text>
-            ) : null}
-
-            {/* Submit button */}
-            <TouchableOpacity
-              style={[
-                styles.voteButton,
-                submitting && styles.voteButtonDisabled,
-              ]}
-              onPress={handleSubmitVote}
-              disabled={submitting}
-              activeOpacity={0.85}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.voteButtonText}>
-                  {existingVote ? 'Update vote' : 'Submit vote'}
-                </Text>
-              )}
-            </TouchableOpacity>
           </ScrollView>
         ) : (
-          <View style={styles.center}>
+          <ScrollView
+            contentContainerStyle={[styles.center, { flexGrow: 1 }]}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            }
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+          >
             <Text style={styles.emptyText}>
               Select a poll above to view and vote.
             </Text>
-          </View>
+          </ScrollView>
         )}
       </View>
-    </View>
+    </BackgroundScreen>
   );
 };
 
@@ -480,13 +787,30 @@ const styles = StyleSheet.create({
   root: {
     marginTop: 30,
     flex: 1,
-    backgroundColor: '#f4f4f7',
+    backgroundColor: 'transparent',
   },
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+  },
+  headerRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222',
+  },
+  headerMeta: {
+    fontSize: 12,
+    color: '#666',
   },
   errorText: {
     color: '#d00',
@@ -504,12 +828,18 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     color: '#222',
   },
-  pollListContainer: {
+  pollListCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+    elevation: 2,
   },
   pollCard: {
     width: 220,
@@ -556,16 +886,31 @@ const styles = StyleSheet.create({
     color: '#d00',
     fontWeight: '600',
   },
-  detailsContainer: {
+  detailsCard: {
     flex: 1,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 16,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+    elevation: 2,
   },
   detailsTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#222',
     marginBottom: 4,
+  },
+  detailsClosedLabel: {
+    fontSize: 12,
+    color: '#d00',
+    marginBottom: 6,
   },
   detailsDescription: {
     fontSize: 13,
@@ -686,5 +1031,53 @@ const styles = StyleSheet.create({
   },
   voteMessageError: {
     color: '#d00',
+  },
+  resultsSection: {
+    marginTop: 12,
+  },
+  resultsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#222',
+    marginBottom: 8,
+  },
+  resultsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  resultsBarContainer: {
+    width: 150,
+    height: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  resultsBarSegment: {
+    height: '100%',
+  },
+  resultsLegend: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  legendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  legendLabel: {
+    fontSize: 12,
+    color: '#333',
+    flexShrink: 1,
+  },
+  resultsTotal: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#555',
   },
 });

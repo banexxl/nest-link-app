@@ -47,7 +47,11 @@ export function DashboardLayout({
      );
 
      return (
-          <ThemedView style={styles.root} lightColor="#fff" darkColor="#000">
+          <ThemedView
+               style={styles.root}
+               lightColor="transparent"
+               darkColor="transparent"
+          >
                <SafeAreaView style={styles.safe}>
                     {header && (
                          <View style={[styles.header, stickyHeader && styles.stickyShadow]}>{header}</View>

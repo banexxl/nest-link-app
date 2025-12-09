@@ -57,6 +57,7 @@ export default function RootLayout() {
     if (Platform.OS !== 'android') return;
 
     const hideNavigationBar = () => {
+      NavigationBar.setBehaviorAsync('overlay-swipe').catch(() => { });
       NavigationBar.setVisibilityAsync('hidden').catch(() => { });
     };
 

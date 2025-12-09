@@ -2,11 +2,22 @@ import { BurgerMenu } from '@/components/burger-menu';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
+import { TAB_BAR_SCROLL_EVENT } from '@/hooks/use-tab-bar-scroll';
 import { supabase } from '@/lib/supabase';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+     ActivityIndicator,
+     Alert,
+     Animated,
+     DeviceEventEmitter,
+     Image,
+     Platform,
+     StyleSheet,
+     TouchableOpacity,
+     View
+} from 'react-native';
 import { ProfileMenu } from './profile-menu';
 
 const AVATAR_SOURCES: Record<string, any> = {
@@ -35,6 +46,8 @@ export function CustomTabBar(props: BottomTabBarProps) {
      const [profileVisible, setProfileVisible] = useState(false);
      const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
      const [loadingAvatar, setLoadingAvatar] = useState(false);
+     const translateY = useRef(new Animated.Value(0)).current;
+     const [isHidden, setIsHidden] = useState(false);
 
      const initials = useMemo(() => {
           const fullName =
@@ -110,6 +123,31 @@ export function CustomTabBar(props: BottomTabBarProps) {
           loadAvatar();
      }, [session?.user?.id, tenantId, profileVisible]);
 
+     useEffect(() => {
+          const listener = DeviceEventEmitter.addListener(TAB_BAR_SCROLL_EVENT, (payload?: { direction?: string }) => {
+               const direction = payload?.direction;
+               if (direction === 'up' && !isHidden) {
+                    setIsHidden(true);
+                    Animated.timing(translateY, {
+                         toValue: 100,
+                         duration: 200,
+                         useNativeDriver: true,
+                    }).start();
+               } else if (direction === 'down' && isHidden) {
+                    setIsHidden(false);
+                    Animated.timing(translateY, {
+                         toValue: 0,
+                         duration: 200,
+                         useNativeDriver: true,
+                    }).start();
+               }
+          });
+
+          return () => {
+               listener.remove();
+          };
+     }, [isHidden, translateY]);
+
      const handleCamera = useCallback(async () => {
           try {
                const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -125,7 +163,10 @@ export function CustomTabBar(props: BottomTabBarProps) {
 
                if (!result.canceled) {
                     const uri = result.assets?.[0]?.uri;
-                    console.log('Captured photo:', uri);
+                    if (uri) {
+                         // Jump to Issues tab with the captured photo so user can file a request
+                         props.navigation.navigate('Issues', { initialPhotoUri: uri });
+                    }
                }
           } catch (error) {
                console.warn('Unable to open camera', error);
@@ -135,7 +176,15 @@ export function CustomTabBar(props: BottomTabBarProps) {
 
      return (
           <>
-               <View style={styles.container}>
+               <Animated.View
+                    style={[
+                         styles.container,
+                         {
+                              paddingBottom: (props.insets?.bottom ?? 0) + 12,
+                              transform: [{ translateY }],
+                         },
+                    ]}
+               >
                     {/* Left - Burger Menu */}
                     <TouchableOpacity
                          style={styles.iconButton}
@@ -159,18 +208,18 @@ export function CustomTabBar(props: BottomTabBarProps) {
                               setProfileVisible(true);
                          }}
                          activeOpacity={0.7}
-                    >
-                         <View style={styles.avatar}>
-                              {loadingAvatar ? (
-                                   <ActivityIndicator color="#fff" />
-                              ) : avatarSource ? (
-                                   <Image source={avatarSource} style={styles.avatarImage} />
-                              ) : (
-                                   <IconSymbol name="person.fill" size={24} color="#fff" />
-                              )}
+                         >
+                              <View style={styles.avatar}>
+                                   {loadingAvatar ? (
+                                        <ActivityIndicator color="#fff" />
+                                   ) : avatarSource ? (
+                                        <Image source={avatarSource} style={styles.avatarImage} />
+                                   ) : (
+                                        <IconSymbol name="person.fill" size={24} color="#fff" />
+                                   )}
                          </View>
                     </TouchableOpacity>
-               </View>
+               </Animated.View>
 
                <BurgerMenu visible={burgerVisible} onClose={() => setBurgerVisible(false)} />
                <ProfileMenu visible={profileVisible} onClose={() => setProfileVisible(false)} />
@@ -186,7 +235,6 @@ const styles = StyleSheet.create({
           backgroundColor: '#fff',
           paddingHorizontal: 24,
           paddingVertical: 12,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 12,
           borderTopWidth: 1,
           borderTopColor: '#e5e7eb',
           shadowColor: '#000',
@@ -195,6 +243,10 @@ const styles = StyleSheet.create({
           shadowRadius: 4,
           elevation: 8,
           minHeight: 70,
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
      },
      iconButton: {
           padding: 8,

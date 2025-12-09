@@ -1,7 +1,11 @@
 // app/main/calendar.tsx
+import BackgroundScreen from '@/components/layouts/background-screen';
+import { useAuth } from '@/context/auth-context';
+import { getBuildingIdFromUserId } from '@/lib/sb-tenant';
 import { supabase } from '@/lib/supabase';
-import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 
 const PRIMARY_COLOR = '#f68a00';
@@ -40,17 +44,26 @@ type MarkedDatesType = {
 };
 
 const CalendarScreen: React.FC = () => {
+  const { session } = useAuth();
+  const authUserId = session?.user.id ?? null;
+
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const { handleScroll } = useTabBarScroll();
 
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
 
-  useEffect(() => {
-    const fetchEvents = async () => {
-      setLoading(true);
+  const [buildingId, setBuildingId] = useState<string | null>(null);
+
+  const fetchEvents = useCallback(
+    async (showLoading = true) => {
+      if (!buildingId) return;
+
+      if (showLoading) setLoading(true);
       setError(null);
       try {
         const { data, error } = await supabase
@@ -67,6 +80,7 @@ const CalendarScreen: React.FC = () => {
             building_id
           `
           )
+          .eq('building_id', buildingId)
           .order('start_date_time', { ascending: true });
 
         if (error) {
@@ -79,12 +93,53 @@ const CalendarScreen: React.FC = () => {
         setError(err?.message ?? 'Failed to load events.');
         setEvents([]);
       } finally {
+        if (showLoading) setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [buildingId]
+  );
+
+  useEffect(() => {
+    if (buildingId) {
+      fetchEvents(true);
+    }
+  }, [buildingId, fetchEvents]);
+
+  // Resolve tenant's building for filtering events
+  useEffect(() => {
+    const loadBuilding = async () => {
+      if (!authUserId) {
+        setError('You must be signed in to view calendar events.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const result = await getBuildingIdFromUserId(supabase, authUserId);
+        if (!result.success || !result.data) {
+          setError(result.error ?? 'Unable to determine building for this tenant.');
+          setBuildingId(null);
+          setLoading(false);
+          return;
+        }
+
+        setBuildingId(result.data.buildingId);
+        setError(null);
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to resolve building for this tenant.');
+        setBuildingId(null);
         setLoading(false);
       }
     };
 
-    fetchEvents();
-  }, []);
+    loadBuilding();
+  }, [authUserId]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchEvents(false);
+  };
 
   const eventsByDate: EventsByDate = useMemo(() => {
     const map: EventsByDate = {};
@@ -177,32 +232,41 @@ const CalendarScreen: React.FC = () => {
 
   if (error) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>{error}</Text>
-      </View>
+      <BackgroundScreen>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      </BackgroundScreen>
     );
   }
 
   return (
-    <View style={styles.root}>
-      <Calendar
-        current={selectedDate}
-        onDayPress={handleDayPress}
-        markedDates={markedDates}
-        theme={{
-          selectedDayBackgroundColor: PRIMARY_COLOR,
-          selectedDayTextColor: '#ffffff',
-          todayTextColor: PRIMARY_COLOR,
-          arrowColor: PRIMARY_COLOR,
-          dotColor: PRIMARY_COLOR,
-          textDayFontFamily: 'System',
-          textMonthFontFamily: 'System',
-          textDayHeaderFontFamily: 'System',
-        }}
-        style={styles.calendar}
-      />
+    <BackgroundScreen>
+      <View style={styles.headerRow}>
+        <Text style={styles.headerTitle}>Calendar</Text>
+        <Text style={styles.headerMeta}>{events.length} events</Text>
+      </View>
 
-      <View style={styles.eventsContainer}>
+      <View style={styles.calendarCard}>
+        <Calendar
+          current={selectedDate}
+          onDayPress={handleDayPress}
+          markedDates={markedDates}
+          theme={{
+            selectedDayBackgroundColor: PRIMARY_COLOR,
+            selectedDayTextColor: '#ffffff',
+            todayTextColor: PRIMARY_COLOR,
+            arrowColor: PRIMARY_COLOR,
+            dotColor: PRIMARY_COLOR,
+            textDayFontFamily: 'System',
+            textMonthFontFamily: 'System',
+            textDayHeaderFontFamily: 'System',
+          }}
+          style={styles.calendar}
+        />
+      </View>
+
+      <View style={styles.eventsCard}>
         <View style={styles.eventsHeaderRow}>
           <Text style={styles.eventsHeaderTitle}>
             {selectedDayEvents.length > 0
@@ -216,7 +280,11 @@ const CalendarScreen: React.FC = () => {
             data={selectedDayEvents}
             keyExtractor={(item) => item.id}
             renderItem={renderEvent}
-            contentContainerStyle={{ paddingBottom: 16 }}
+            contentContainerStyle={{ paddingBottom: 4 }}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
           />
         ) : (
           <ScrollView
@@ -225,6 +293,11 @@ const CalendarScreen: React.FC = () => {
               justifyContent: 'center',
               flexGrow: 1,
             }}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            }
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
           >
             <Text style={styles.emptyText}>
               Tap another day in the calendar to see its events.
@@ -232,7 +305,7 @@ const CalendarScreen: React.FC = () => {
           </ScrollView>
         )}
       </View>
-    </View>
+    </BackgroundScreen>
   );
 };
 
@@ -242,16 +315,55 @@ const styles = StyleSheet.create({
   root: {
     marginTop: 30,
     flex: 1,
-    backgroundColor: '#f4f4f7',
+    backgroundColor: 'transparent',
+  },
+  headerRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222',
+  },
+  headerMeta: {
+    fontSize: 12,
+    color: '#666',
+  },
+  calendarCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+    elevation: 2,
   },
   calendar: {
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
-  eventsContainer: {
+  eventsCard: {
     flex: 1,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 16,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+    elevation: 2,
   },
   eventsHeaderRow: {
     flexDirection: 'row',
