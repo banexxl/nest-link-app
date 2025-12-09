@@ -23,6 +23,7 @@ import {
   View
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useLocalSearchParams } from 'expo-router';
 
 const PRIMARY_COLOR = '#f68a00';
 
@@ -93,6 +94,7 @@ const ServiceRequestsScreen: React.FC = () => {
   const { handleScroll } = useTabBarScroll();
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
+  const searchParams = useLocalSearchParams();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,15 +125,19 @@ const ServiceRequestsScreen: React.FC = () => {
   const [buildingId, setBuildingId] = useState<string | null>(null);
 
   useEffect(() => {
-    const incomingUri = route.params?.initialPhotoUri as string | undefined;
-    if (incomingUri) {
+    const rawParam =
+      (route.params as any)?.initialPhotoUri ??
+      (route.params as any)?.params?.initialPhotoUri ??
+      (searchParams as any)?.initialPhotoUri;
+    if (rawParam) {
+      const incomingUri = String(rawParam);
       setCreating(true);
       setSelectedIncidentId(null);
       setForm(defaultForm);
       setCapturedPhotoUri(incomingUri);
       navigation.setParams({ initialPhotoUri: undefined });
     }
-  }, [route.params?.initialPhotoUri, navigation]);
+  }, [route.params, searchParams, navigation]);
 
   const fetchIncidents = useCallback(
     async (showLoading = true) => {

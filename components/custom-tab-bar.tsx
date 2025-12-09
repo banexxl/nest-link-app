@@ -13,7 +13,6 @@ import {
      Animated,
      DeviceEventEmitter,
      Image,
-     Platform,
      StyleSheet,
      TouchableOpacity,
      View
@@ -157,7 +156,7 @@ export function CustomTabBar(props: BottomTabBarProps) {
                }
 
                const result = await ImagePicker.launchCameraAsync({
-                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    mediaTypes: ['images'], // 👈 string literal, not ImagePicker.MediaType
                     quality: 0.85,
                });
 
@@ -165,7 +164,8 @@ export function CustomTabBar(props: BottomTabBarProps) {
                     const uri = result.assets?.[0]?.uri;
                     if (uri) {
                          // Jump to Issues tab with the captured photo so user can file a request
-                         props.navigation.navigate('Issues', { initialPhotoUri: uri });
+                         // Expo Router Tab names are lowercase folder names
+                         props.navigation.navigate('issues' as any, { initialPhotoUri: uri } as never);
                     }
                }
           } catch (error) {
@@ -208,15 +208,15 @@ export function CustomTabBar(props: BottomTabBarProps) {
                               setProfileVisible(true);
                          }}
                          activeOpacity={0.7}
-                         >
-                              <View style={styles.avatar}>
-                                   {loadingAvatar ? (
-                                        <ActivityIndicator color="#fff" />
-                                   ) : avatarSource ? (
-                                        <Image source={avatarSource} style={styles.avatarImage} />
-                                   ) : (
-                                        <IconSymbol name="person.fill" size={24} color="#fff" />
-                                   )}
+                    >
+                         <View style={styles.avatar}>
+                              {loadingAvatar ? (
+                                   <ActivityIndicator color="#fff" />
+                              ) : avatarSource ? (
+                                   <Image source={avatarSource} style={styles.avatarImage} />
+                              ) : (
+                                   <IconSymbol name="person.fill" size={24} color="#fff" />
+                              )}
                          </View>
                     </TouchableOpacity>
                </Animated.View>
