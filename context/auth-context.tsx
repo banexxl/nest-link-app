@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Linking } from 'react-native';
 
 type SignInResult =
      | { success: true }
@@ -171,10 +171,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
      const signInWithGoogle = async (): Promise<SignInResult> => {
           try {
-               const { error } = await supabase.auth.signInWithOAuth({
+               const { data, error } = await supabase.auth.signInWithOAuth({
                     provider: 'google',
                     options: {
-                         redirectTo: 'https://dashboard.nestlink.app/auth/callback',
+                         // Use the mobile app deep link so the session
+                         // comes back to this client instead of the web app
+                         redirectTo: 'nestlinkapp://auth/callback',
                     },
                });
 
@@ -185,23 +187,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     };
                }
 
-               // Wait for session to be available after OAuth redirect
-               const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-               if (sessionError || !sessionData.session || !sessionData.session.user) {
-                    return {
-                         success: false,
-                         message: 'Unable to get session after Google sign-in.',
-                    };
+               // On React Native, Supabase returns an auth URL to open.
+               if (data?.url) {
+                    await Linking.openURL(data.url);
                }
 
-               const tenantResult = await ensureTenantExists(sessionData.session.user.id);
-               if (!tenantResult.success) {
-                    await supabase.auth.signOut();
-                    setTenantId(null);
-                    return tenantResult;
-               }
-
-               setTenantId(tenantResult.tenantId);
+               // After the browser flow, the deep link will bring the user
+               // back into the app via nestlinkapp://auth/callback. From
+               // there, Supabase will finalize the session and our auth
+               // listener will pick it up.
                return { success: true };
           } catch (err: any) {
                console.error('Google sign-in error:', err);
