@@ -18,14 +18,13 @@ type ProfileMenuProps = {
 };
 
 export function ProfileMenu({ visible, onClose }: ProfileMenuProps) {
-     const navigation = useNavigation();
+     // Use the generic type for navigation to allow passing params
+     const navigation = useNavigation<any>();
      const { signOut, session } = useAuth();
 
      const handleProfile = () => {
           onClose();
-          navigation.navigate('Main' as any, {
-               screen: 'Profile',
-          });
+          navigation.navigate('Main', { screen: 'Profile' });
      };
 
      const handleLogout = async () => {

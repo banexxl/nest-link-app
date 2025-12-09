@@ -1,24 +1,38 @@
-import { useThemeColor } from '@/hooks/use-theme-color';
-import { StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { useEffect } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-export default function ProfileScreen() {
-  const primary = useThemeColor({}, 'primary', 'main');
-  const secondary = useThemeColor({}, 'secondary', 'dark');
+import { useAuth } from '@/context/auth-context';
+
+export default function IndexScreen() {
+  const { session, loading } = useAuth();
+  const navigation = useNavigation<any>();
+
+  useEffect(() => {
+    if (loading) return;
+
+    if (session) {
+      // User is authenticated -> go to Profile tab
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Main', params: { screen: 'Profile' } }],
+      });
+    } else {
+      // No session -> go to Auth stack
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Auth' }],
+      });
+    }
+  }, [session, loading, navigation]);
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: primary }]}>Profile</Text>
-      </View>
-      <Text style={[styles.subtitle, { color: secondary }]}>Manage your account and settings</Text>
+      <ActivityIndicator />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, gap: 8 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  title: { fontSize: 24, fontWeight: '700' },
-  subtitle: { fontSize: 14, fontWeight: '500' },
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
-

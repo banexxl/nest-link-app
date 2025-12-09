@@ -3,10 +3,16 @@ import { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 
+type SignInResult =
+     | { success: true }
+     | { success: false; message: string };
+
 type AuthContextValue = {
      session: Session | null;
+     tenantId: string | null;
      loading: boolean;
-     signIn: (email: string, password: string) => Promise<{ error: any } | void>;
+     signIn: (email: string, password: string) => Promise<SignInResult>;
+     signInWithGoogle: () => Promise<SignInResult>;
      signOut: () => Promise<void>;
 };
 
@@ -15,6 +21,44 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
      const [session, setSession] = useState<Session | null>(null);
      const [loading, setLoading] = useState(true);
+     const [tenantId, setTenantId] = useState<string | null>(null);
+
+     type TenantCheckResult =
+          | { success: true; tenantId: string }
+          | { success: false; message: string };
+
+     const ensureTenantExists = async (userId: string): Promise<TenantCheckResult> => {
+          try {
+               const { data, error } = await supabase
+                    .from('tblTenants')
+                    .select('id')
+                    .eq('user_id', userId)
+                    .maybeSingle();
+
+               if (error) {
+                    console.error('Tenant check failed:', error);
+                    return {
+                         success: false,
+                         message: 'Unable to verify tenant access. Please try again.',
+                    };
+               }
+
+               if (!data) {
+                    return {
+                         success: false,
+                         message: 'Your account is not registered as a tenant.',
+                    };
+               }
+
+               return { success: true, tenantId: data.id as string };
+          } catch (err) {
+               console.error('Tenant check unexpected error:', err);
+               return {
+                    success: false,
+                    message: 'Unexpected error while verifying tenant.',
+               };
+          }
+     };
 
      // Check session validity
      const checkSession = async () => {
@@ -26,15 +70,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     return;
                }
 
-               // Set session immediately, don't wait for user verification
+               // Set session immediately
                setSession(data.session);
                setLoading(false);
 
-               // Verify token in background (optional)
-               const { error: userError } = await supabase.auth.getUser();
-               if (userError) {
-                    setSession(null);
-                    await supabase.auth.signOut();
+               // Load tenant id for this user in background
+               try {
+                    const { data: tenantData, error: tenantError } = await supabase
+                         .from('tblTenants')
+                         .select('id')
+                         .eq('user_id', data.session.user.id)
+                         .maybeSingle();
+
+                    if (tenantError || !tenantData) {
+                         setTenantId(null);
+                    } else {
+                         setTenantId(tenantData.id as string);
+                    }
+               } catch (tenantErr) {
+                    console.error('Error loading tenant for session:', tenantErr);
+                    setTenantId(null);
                }
           } catch (err) {
                console.error('Session check error:', err);
@@ -87,18 +142,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
      }, []);
 
-     const signIn = async (email: string, password: string) => {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
-          if (error) return { error };
+     const signIn = async (
+          email: string,
+          password: string,
+     ): Promise<SignInResult> => {
+          const { data, error } = await supabase.auth.signInWithPassword({
+               email,
+               password,
+          });
+
+          if (error || !data.session || !data.session.user) {
+               return {
+                    success: false,
+                    message: error?.message ?? 'Invalid email or password.',
+               };
+          }
+
+          const tenantResult = await ensureTenantExists(data.session.user.id);
+          if (!tenantResult.success) {
+               await supabase.auth.signOut();
+               setTenantId(null);
+               return tenantResult;
+          }
+
+          setTenantId(tenantResult.tenantId);
+          return { success: true };
+     };
+
+     const signInWithGoogle = async (): Promise<SignInResult> => {
+          try {
+               const { error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                         redirectTo: 'https://dashboard.nestlink.app/auth/callback',
+                    },
+               });
+
+               if (error) {
+                    return {
+                         success: false,
+                         message: error.message ?? 'Google sign-in failed.',
+                    };
+               }
+
+               // Wait for session to be available after OAuth redirect
+               const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+               if (sessionError || !sessionData.session || !sessionData.session.user) {
+                    return {
+                         success: false,
+                         message: 'Unable to get session after Google sign-in.',
+                    };
+               }
+
+               const tenantResult = await ensureTenantExists(sessionData.session.user.id);
+               if (!tenantResult.success) {
+                    await supabase.auth.signOut();
+                    setTenantId(null);
+                    return tenantResult;
+               }
+
+               setTenantId(tenantResult.tenantId);
+               return { success: true };
+          } catch (err: any) {
+               console.error('Google sign-in error:', err);
+               return {
+                    success: false,
+                    message: err?.message ?? 'Google sign-in failed.',
+               };
+          }
      };
 
      const signOut = async () => {
           setSession(null);
+          setTenantId(null);
           await supabase.auth.signOut();
      };
 
      return (
-          <AuthContext.Provider value={{ session, loading, signIn, signOut }}>
+          <AuthContext.Provider
+               value={{ session, loading, tenantId, signIn, signInWithGoogle, signOut }}
+          >
                {children}
           </AuthContext.Provider>
      );

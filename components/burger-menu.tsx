@@ -24,8 +24,7 @@ type MenuItem = {
 };
 
 const menuItems: MenuItem[] = [
-     { label: 'Home', route: 'Home', icon: 'house.fill' },
-     { label: 'Explore', route: 'Explore', icon: 'paperplane.fill' },
+     { label: 'Profile', route: 'Profile', icon: 'person.fill' },
      { label: 'Announcements', route: 'Announcements', icon: 'megaphone.fill' },
      { label: 'Calendar', route: 'Calendar', icon: 'calendar' },
      { label: 'Polls', route: 'Polls', icon: 'chart.bar.fill' },
@@ -40,7 +39,7 @@ type BurgerMenuProps = {
 
 export function BurgerMenu({ visible, onClose }: BurgerMenuProps) {
      const [slideAnim] = useState(new Animated.Value(-DRAWER_WIDTH));
-     const navigation = useNavigation();
+     const navigation = useNavigation<any>();
 
      React.useEffect(() => {
           if (visible) {
@@ -62,9 +61,7 @@ export function BurgerMenu({ visible, onClose }: BurgerMenuProps) {
      const handleNavigation = (route: string) => {
           onClose();
           setTimeout(() => {
-               navigation.navigate('Main' as any, {
-                    screen: route,
-               });
+               navigation.navigate('Main', { screen: route });
           }, 300);
      };
 

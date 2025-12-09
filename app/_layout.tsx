@@ -1,11 +1,13 @@
 import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as NavigationBar from 'expo-navigation-bar';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, Text, View } from 'react-native';
 import AuthScreen from './auth/index';
 import RequestAccessScreen from './auth/request-access';
 import ResetPasswordScreen from './auth/reset-password';
@@ -48,6 +50,23 @@ function RootNavigator() {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const hideNavigationBar = () => {
+      NavigationBar.setVisibilityAsync('hidden').catch(() => {});
+      NavigationBar.setBehaviorAsync('overlay-swipe').catch(() => {});
+    };
+
+    hideNavigationBar();
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') hideNavigationBar();
+    });
+
+    return () => sub.remove();
+  }, []);
+
   return (
     <AuthProvider>
       <NavigationContainer

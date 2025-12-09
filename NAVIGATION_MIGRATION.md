@@ -50,7 +50,6 @@ NavigationContainer (independent)
     └── If authenticated:
         ├── Main (Tab Navigator)
         │   ├── Home
-        │   ├── Explore
         │   ├── Announcements
         │   ├── Calendar
         │   ├── Polls

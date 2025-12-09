@@ -30,13 +30,14 @@ type NavigationProps = NativeStackNavigationProp<RootStackParamList, 'Auth'>;
 
 const AuthScreen = () => {
      const navigation = useNavigation<NavigationProps>();
-     const { signIn } = useAuth();
+     const { signIn, signInWithGoogle } = useAuth();
 
      const [activeTab, setActiveTab] = useState<'password' | 'google'>('password');
      const [email, setEmail] = useState('');
      const [password, setPassword] = useState('');
      const [submitting, setSubmitting] = useState(false);
      const [error, setError] = useState<string | null>(null);
+     const [showPassword, setShowPassword] = useState(false);
 
      const handlePasswordLogin = async () => {
           setError(null);
@@ -47,10 +48,15 @@ const AuthScreen = () => {
           }
 
           setSubmitting(true);
-          // const { error } = await signIn(email.trim(), password);
-          // if (error) {
-          //      setError(error);
-          // }
+          const result = await signIn(email.trim(), password);
+          if (!result.success) {
+               setError(result.message);
+               setSubmitting(false);
+               return;
+          }
+
+          // On success, AuthContext session is set and RootNavigator
+          // will switch from Auth stack to Main automatically.
           setSubmitting(false);
      };
 
@@ -58,16 +64,11 @@ const AuthScreen = () => {
           setSubmitting(true);
           setError(null);
 
-          try {
-               // TODO: plug your Google login here:
-               // e.g. using expo-auth-session + supabase.auth.signInWithIdToken()
-               // or supabase.auth.signInWithOAuth({ provider: 'google', ... })
-               console.log('Google sign-in pressed');
-          } catch (err: any) {
-               setError(err?.message ?? 'Google login failed');
-          } finally {
-               setSubmitting(false);
+          const result = await signInWithGoogle();
+          if (!result.success) {
+               setError(result.message);
           }
+          setSubmitting(false);
      };
 
      const handleResetPassword = () => {
@@ -166,14 +167,24 @@ const AuthScreen = () => {
                                         {/* Password */}
                                         <View style={styles.fieldGroup}>
                                              <Text style={styles.fieldLabel}>Password</Text>
-                                             <TextInput
-                                                  style={styles.input}
-                                                  placeholder="Password"
-                                                  placeholderTextColor="#888"
-                                                  secureTextEntry
-                                                  value={password}
-                                                  onChangeText={setPassword}
-                                             />
+                                             <View style={styles.passwordRow}>
+                                                  <TextInput
+                                                       style={[styles.input, styles.passwordInput]}
+                                                       placeholder="Password"
+                                                       placeholderTextColor="#888"
+                                                       secureTextEntry={!showPassword}
+                                                       value={password}
+                                                       onChangeText={setPassword}
+                                                  />
+                                                  <TouchableOpacity
+                                                       style={styles.eyeButton}
+                                                       onPress={() => setShowPassword((prev) => !prev)}
+                                                  >
+                                                       <Text style={styles.eyeIcon}>
+                                                            {showPassword ? '🙈' : '👁️'}
+                                                       </Text>
+                                                  </TouchableOpacity>
+                                             </View>
                                         </View>
 
                                         {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -338,6 +349,20 @@ const styles = StyleSheet.create({
           paddingVertical: 10,
           backgroundColor: '#f7f7fb',
           fontSize: 14,
+     },
+     passwordRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+     },
+     passwordInput: {
+          flex: 1,
+     },
+     eyeButton: {
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+     },
+     eyeIcon: {
+          fontSize: 18,
      },
      errorText: {
           color: '#d00',

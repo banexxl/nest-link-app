@@ -2,18 +2,37 @@ import { BurgerMenu } from '@/components/burger-menu';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import React, { useState } from 'react';
-import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import React, { useCallback, useState } from 'react';
+import { Alert, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ProfileMenu } from './profile-menu';
 
 export function CustomTabBar(props: BottomTabBarProps) {
      const [burgerVisible, setBurgerVisible] = useState(false);
      const [profileVisible, setProfileVisible] = useState(false);
 
-     const handleCamera = () => {
-          // TODO: Open camera or photo upload
-          console.log('Camera pressed');
-     };
+     const handleCamera = useCallback(async () => {
+          try {
+               const permission = await ImagePicker.requestCameraPermissionsAsync();
+               if (permission.status !== 'granted') {
+                    Alert.alert('Camera permission needed', 'Enable camera access to take a photo.');
+                    return;
+               }
+
+               const result = await ImagePicker.launchCameraAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    quality: 0.85,
+               });
+
+               if (!result.canceled) {
+                    const uri = result.assets?.[0]?.uri;
+                    console.log('Captured photo:', uri);
+               }
+          } catch (error) {
+               console.warn('Unable to open camera', error);
+               Alert.alert('Camera error', 'Could not open the camera. Please try again.');
+          }
+     }, []);
 
      return (
           <>
