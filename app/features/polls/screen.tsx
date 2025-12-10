@@ -16,6 +16,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { PieChart } from 'react-native-gifted-charts';
 
@@ -72,6 +73,7 @@ const PollsScreen: React.FC = () => {
   const { handleScroll } = useTabBarScroll();
   const tenantPk = tenantId ?? null; // FK to tblTenants in votes
   const authUserId = session?.user.id ?? null;
+  const { height: screenHeight } = useWindowDimensions();
 
   const [polls, setPolls] = useState<Poll[]>([]);
   const [loading, setLoading] = useState(true);
@@ -507,6 +509,7 @@ const PollsScreen: React.FC = () => {
     : false;
   const isSelectedPollClosed =
     !!selectedPoll && (selectedPoll.status === 'closed' || hasSelectedPollEnded);
+  const detailsMaxHeight = useMemo(() => Math.max(screenHeight * 0.55, 340), [screenHeight]);
 
   const renderOption = (option: { id: string; label: string; sort_order: number }) => {
     const isSelected = option.id === selectedOptionId;
@@ -573,7 +576,7 @@ const PollsScreen: React.FC = () => {
       </View>
 
       {/* Selected poll details card */}
-      <View style={styles.detailsCard}>
+      <View style={[styles.detailsCard, { maxHeight: detailsMaxHeight }]}>
         {selectedPoll ? (
           <ScrollView
             contentContainerStyle={{ paddingBottom: 24 }}
@@ -583,6 +586,7 @@ const PollsScreen: React.FC = () => {
             }
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            style={{ maxHeight: detailsMaxHeight - 28 }}
           >
             <Text style={styles.detailsTitle}>{selectedPoll.title}</Text>
             {isSelectedPollClosed && (
@@ -764,12 +768,13 @@ const PollsScreen: React.FC = () => {
           </ScrollView>
         ) : (
           <ScrollView
-            contentContainerStyle={[styles.center, { flexGrow: 1 }]}
+            contentContainerStyle={[styles.center, { paddingVertical: 12 }]}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
             }
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            style={{ maxHeight: detailsMaxHeight - 28 }}
           >
             <Text style={styles.emptyText}>
               Select a poll above to view and vote.
@@ -832,7 +837,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 10,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.96)',
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
     paddingHorizontal: 16,
     paddingVertical: 10,
     shadowColor: '#000',
@@ -844,7 +849,7 @@ const styles = StyleSheet.create({
   pollCard: {
     width: 220,
     borderRadius: 14,
-    backgroundColor: '#fff',
+    backgroundColor: '#f9d6a1ff',
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginRight: 10,
@@ -887,7 +892,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   detailsCard: {
-    flex: 1,
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 16,

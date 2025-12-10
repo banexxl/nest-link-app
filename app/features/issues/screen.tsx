@@ -27,6 +27,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useWindowDimensions } from 'react-native';
 
 const PRIMARY_COLOR = '#f68a00';
 
@@ -106,6 +107,7 @@ const ServiceRequestsScreen: React.FC = () => {
   const { session } = useAuth();
   const profileId = session?.user.id ?? null; // TODO: map to tenant profile id if needed
   const { handleScroll } = useTabBarScroll();
+  const { height: screenHeight } = useWindowDimensions();
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const searchParams = useLocalSearchParams();
@@ -121,6 +123,7 @@ const ServiceRequestsScreen: React.FC = () => {
     () => incidents.find((i) => i.id === selectedIncidentId) ?? null,
     [incidents, selectedIncidentId]
   );
+  const detailsMaxHeight = useMemo(() => Math.max(screenHeight * 0.6, 360), [screenHeight]);
 
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<NewIncidentForm>(defaultForm);
@@ -751,7 +754,7 @@ const ServiceRequestsScreen: React.FC = () => {
         </View>
 
         {/* Details / new request card */}
-        <View style={styles.detailsCard}>
+        <View style={[styles.detailsCard, { maxHeight: detailsMaxHeight }]}>
           {creating ? (
             <ScrollView
               contentContainerStyle={{ paddingBottom: 24 }}
@@ -761,6 +764,7 @@ const ServiceRequestsScreen: React.FC = () => {
               refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={() => fetchIncidents(false)} />
               }
+              style={{ maxHeight: detailsMaxHeight - 28 }}
             >
               <Text style={styles.detailsTitle}>New service request</Text>
 
@@ -901,6 +905,7 @@ const ServiceRequestsScreen: React.FC = () => {
               refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={() => fetchIncidents(false)} />
               }
+              style={{ maxHeight: detailsMaxHeight - 28 }}
             >
               <Text style={styles.detailsTitle}>{selectedIncident.title}</Text>
               <Text style={styles.detailsStatus}>
@@ -1161,7 +1166,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   detailsCard: {
-    flex: 1,
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 16,
