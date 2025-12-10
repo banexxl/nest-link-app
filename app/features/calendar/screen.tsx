@@ -5,7 +5,7 @@ import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
 import { getBuildingIdFromUserId } from '@/lib/sb-tenant';
 import { supabase } from '@/lib/supabase';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 
 const PRIMARY_COLOR = '#f68a00';
@@ -46,6 +46,7 @@ type MarkedDatesType = {
 const CalendarScreen: React.FC = () => {
   const { session } = useAuth();
   const authUserId = session?.user.id ?? null;
+  const { height: screenHeight } = useWindowDimensions();
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -190,6 +191,8 @@ const CalendarScreen: React.FC = () => {
   };
 
   const selectedDayEvents = eventsByDate[selectedDate] ?? [];
+  const hasEvents = selectedDayEvents.length > 0;
+  const eventsMaxHeight = useMemo(() => Math.max(screenHeight * 0.45, 260), [screenHeight]);
 
   const renderEvent = ({ item }: { item: CalendarEvent }) => {
     const start = item.start_date_time ? new Date(item.start_date_time) : null;
@@ -266,16 +269,16 @@ const CalendarScreen: React.FC = () => {
         />
       </View>
 
-      <View style={styles.eventsCard}>
+      <View style={[styles.eventsCard, { maxHeight: eventsMaxHeight }]}>
         <View style={styles.eventsHeaderRow}>
           <Text style={styles.eventsHeaderTitle}>
-            {selectedDayEvents.length > 0
+            {hasEvents
               ? `Events on ${selectedDate} (${selectedDayEvents.length})`
               : `No events on ${selectedDate}`}
           </Text>
         </View>
 
-        {selectedDayEvents.length > 0 ? (
+        {hasEvents ? (
           <FlatList
             data={selectedDayEvents}
             keyExtractor={(item) => item.id}
@@ -285,19 +288,22 @@ const CalendarScreen: React.FC = () => {
             onRefresh={handleRefresh}
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            style={{ maxHeight: eventsMaxHeight - 28 }}
+            showsVerticalScrollIndicator={selectedDayEvents.length > 3}
           />
         ) : (
           <ScrollView
             contentContainerStyle={{
               alignItems: 'center',
               justifyContent: 'center',
-              flexGrow: 1,
+              paddingVertical: 12,
             }}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
             }
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            style={{ maxHeight: eventsMaxHeight - 28 }}
           >
             <Text style={styles.emptyText}>
               Tap another day in the calendar to see its events.
@@ -351,7 +357,6 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   eventsCard: {
-    flex: 1,
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 16,

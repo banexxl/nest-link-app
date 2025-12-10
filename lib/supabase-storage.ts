@@ -20,7 +20,6 @@ export async function uploadIncidentImage(
      params: UploadIncidentImageParams
 ): Promise<IncidentImageRow | null> {
      const { clientId, incidentId, localUri, buildingId, apartmentId } = params;
-     console.log(clientId, incidentId, localUri, buildingId, apartmentId);
 
      if (!localUri) {
           return null;
@@ -39,17 +38,22 @@ export async function uploadIncidentImage(
      const fileName = `${Date.now()}.${extension || 'jpg'}`;
      const storagePath = `${basePath}/${fileName}`;
 
-     const file = {
-          uri: localUri,
-          name: fileName,
-          type: mimeType,
-     } as any;
+     // In React Native / Expo, convert the local file URI to a Blob
+     let blob: Blob;
+     try {
+          const response = await fetch(localUri);
+          blob = await response.blob();
+     } catch (err) {
+          console.warn('uploadIncidentImage: failed to read local file', err);
+          return null;
+     }
 
      const { error: uploadError } = await supabase.storage
           .from(CLIENTS_DATA_BUCKET)
-          .upload(storagePath, file, {
+          .upload(storagePath, blob, {
                cacheControl: '3600',
                upsert: false,
+               contentType: mimeType,
           });
 
      if (uploadError) {
