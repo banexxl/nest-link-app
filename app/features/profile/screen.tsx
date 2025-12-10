@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
   topCard: {
     borderRadius: 24,
     paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingVertical: 10,
     backgroundColor: 'rgba(255,255,255,0.96)',
     alignItems: 'center',
     marginBottom: 16,
