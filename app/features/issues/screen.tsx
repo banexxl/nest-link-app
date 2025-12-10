@@ -285,22 +285,23 @@ const ServiceRequestsScreen: React.FC = () => {
     await fetchIncidents(false);
   };
 
-  // pre-sign image urls
+  // Sign image URLs only for the currently selected incident
   useEffect(() => {
-    const signAll = async () => {
+    const signSelectedIncidentImages = async () => {
+      if (!selectedIncident) return;
+      if (!selectedIncident.images || selectedIncident.images.length === 0) return;
+
       const toSign: { key: string; bucket: string; path: string }[] = [];
 
-      incidents.forEach((inc) => {
-        (inc.images ?? []).forEach((img) => {
-          if (!img.storage_bucket || !img.storage_path) return;
-          const key = `${img.storage_bucket}:${img.storage_path}`;
-          if (signedUrls[key]) return;
-          if (toSign.find((t) => t.key === key)) return;
-          toSign.push({
-            key,
-            bucket: img.storage_bucket,
-            path: img.storage_path,
-          });
+      selectedIncident.images.forEach((img) => {
+        if (!img.storage_bucket || !img.storage_path) return;
+        const key = `${img.storage_bucket}:${img.storage_path}`;
+        if (signedUrls[key]) return;
+        if (toSign.find((t) => t.key === key)) return;
+        toSign.push({
+          key,
+          bucket: img.storage_bucket,
+          path: img.storage_path,
         });
       });
 
@@ -323,10 +324,8 @@ const ServiceRequestsScreen: React.FC = () => {
       }
     };
 
-    if (incidents.length > 0) {
-      signAll();
-    }
-  }, [incidents, signedUrls]);
+    signSelectedIncidentImages();
+  }, [selectedIncident, signedUrls]);
 
   // Resolve commenter display names from tblTenants.user_id
   useEffect(() => {
@@ -495,9 +494,18 @@ const ServiceRequestsScreen: React.FC = () => {
                 ...newIncident,
                 images: [...(newIncident.images ?? []), uploadedImage],
               };
+            } else {
+              Alert.alert(
+                'Image upload',
+                'Your request was created, but the photo could not be uploaded. You can try adding it again from the request details.'
+              );
             }
           } catch (uploadErr) {
             console.warn('Failed to upload incident image', uploadErr);
+            Alert.alert(
+              'Image upload',
+              'Your request was created, but the photo could not be uploaded. You can try adding it again from the request details.'
+            );
           }
         }
         setIncidents((prev) => [newIncident, ...prev]);
@@ -635,6 +643,8 @@ const ServiceRequestsScreen: React.FC = () => {
               : inc
           )
         );
+      } else {
+        Alert.alert('Image error', 'Could not upload image. Please try again.');
       }
     } catch (error) {
       console.warn('handleAddImageToIncident failed', error);

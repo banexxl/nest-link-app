@@ -1,3 +1,5 @@
+import { decode as atob } from 'base-64';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from './supabase';
 
 const CLIENTS_DATA_BUCKET = 'nla-clients-data';
@@ -38,16 +40,23 @@ export async function uploadIncidentImage(
      const fileName = `${Date.now()}.${extension || 'jpg'}`;
      const storagePath = `${basePath}/${fileName}`;
 
-     // For React Native / Expo, pass a file-like object with uri/name/type
-     const file = {
-          uri: localUri,
-          name: fileName,
-          type: mimeType,
-     } as any;
+     // Read the local file as base64, convert to binary, and upload bytes
+     let base64: string;
+     try {
+          base64 = await FileSystem.readAsStringAsync(localUri, {
+               // Some Expo SDK versions do not expose EncodingType; use literal
+               encoding: 'base64' as any,
+          });
+     } catch (err) {
+          console.warn('uploadIncidentImage: failed to read file from device', err);
+          return null;
+     }
+
+     const binary = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 
      const { error: uploadError } = await supabase.storage
           .from(CLIENTS_DATA_BUCKET)
-          .upload(storagePath, file, {
+          .upload(storagePath, binary.buffer, {
                cacheControl: '3600',
                upsert: false,
                contentType: mimeType,
