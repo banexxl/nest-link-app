@@ -601,7 +601,7 @@ const ServiceRequestsScreen: React.FC = () => {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.85,
       });
 
