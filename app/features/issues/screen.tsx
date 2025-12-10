@@ -1074,7 +1074,7 @@ const styles = StyleSheet.create({
   },
   pageHeaderMeta: {
     fontSize: 12,
-    color: '#666',
+    color: '#ed9633ff',
   },
   headerRow: {
     flexDirection: 'row',

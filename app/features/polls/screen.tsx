@@ -810,10 +810,10 @@ const styles = StyleSheet.create({
   },
   headerMeta: {
     fontSize: 12,
-    color: '#666',
+    color: '#ed9633ff',
   },
   errorText: {
-    color: '#d00',
+    color: 'rgba(247, 61, 61, 1)',
     fontSize: 13,
     textAlign: 'center',
   },

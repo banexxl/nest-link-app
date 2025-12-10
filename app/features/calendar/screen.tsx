@@ -1,9 +1,9 @@
 // app/main/calendar.tsx
 import BackgroundScreen from '@/components/layouts/background-screen';
 import { useAuth } from '@/context/auth-context';
+import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
 import { getBuildingIdFromUserId } from '@/lib/sb-tenant';
 import { supabase } from '@/lib/supabase';
-import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
   },
   headerMeta: {
     fontSize: 12,
-    color: '#666',
+    color: '#ed9633ff',
   },
   calendarCard: {
     marginHorizontal: 16,

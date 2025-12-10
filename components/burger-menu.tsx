@@ -156,7 +156,7 @@ export function BurgerMenu({ visible, onClose }: BurgerMenuProps) {
                                         <IconSymbol
                                              name="rectangle.portrait.and.arrow.right"
                                              size={20}
-                                             color="#dc2626"
+                                             color="#fb6969ff"
                                         />
                                         <Text style={styles.logoutText}>Logout</Text>
                                    </TouchableOpacity>
@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
           top: 0,
           bottom: 0,
           width: DRAWER_WIDTH,
-          backgroundColor: '#fff',
+          backgroundColor: '#f9edd7ff',
           shadowColor: '#000',
           shadowOffset: { width: 2, height: 0 },
           shadowOpacity: 0.25,
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
      },
      logoutText: {
           fontSize: 16,
-          color: '#dc2626',
+          color: '#ff5c5cff',
           fontWeight: '600',
      },
      docsButton: {

@@ -508,7 +508,7 @@ const styles = StyleSheet.create({
   },
   headerMeta: {
     fontSize: 12,
-    color: '#666',
+    color: '#ed9633ff',
   },
   card: {
     borderRadius: 18,
