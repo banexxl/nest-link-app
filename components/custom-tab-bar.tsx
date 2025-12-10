@@ -154,6 +154,16 @@ export function CustomTabBar(props: BottomTabBarProps) {
     };
   }, [isHidden, translateY, barHeight, screenInsets.bottom]);
 
+  // Whenever the active tab/page changes, ensure the custom bar is shown again
+  useEffect(() => {
+    setIsHidden(false);
+    Animated.timing(translateY, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [props.state.index, translateY]);
+
   const handleCamera = useCallback(async () => {
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
