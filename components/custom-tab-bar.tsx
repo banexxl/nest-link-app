@@ -184,7 +184,7 @@ export function CustomTabBar(props: BottomTabBarProps) {
         style={[
           styles.container,
           {
-            paddingBottom: (props.insets?.bottom ?? 0) + 12,
+            paddingBottom: 10,
             transform: [{ translateY }],
           },
         ]}
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#f2dba6ff',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderTopWidth: 1,

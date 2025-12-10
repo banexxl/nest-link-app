@@ -20,6 +20,7 @@ export async function uploadIncidentImage(
      params: UploadIncidentImageParams
 ): Promise<IncidentImageRow | null> {
      const { clientId, incidentId, localUri, buildingId, apartmentId } = params;
+     console.log(clientId, incidentId, localUri, buildingId, apartmentId);
 
      if (!localUri) {
           return null;

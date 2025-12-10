@@ -1,10 +1,12 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { useAuth } from '@/context/auth-context';
 import { useNavigation } from '@react-navigation/native';
 import React, { useState } from 'react';
 import {
      Animated,
      Dimensions,
+     Image,
      Modal,
      Pressable,
      StyleSheet,
@@ -16,6 +18,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 const DRAWER_WIDTH = width * 0.75;
+
+// Local header icon asset
+const HEADER_ICON = require('@/assets/images/favicon.png');
 
 type MenuItem = {
      label: string;
@@ -39,24 +44,35 @@ type BurgerMenuProps = {
 
 export function BurgerMenu({ visible, onClose }: BurgerMenuProps) {
      const [slideAnim] = useState(new Animated.Value(-DRAWER_WIDTH));
+     const [mounted, setMounted] = useState(visible);
      const navigation = useNavigation<any>();
+     const { signOut } = useAuth();
 
      React.useEffect(() => {
           if (visible) {
+               // When opening: ensure modal is mounted, then slide in
+               if (!mounted) {
+                    setMounted(true);
+               }
                Animated.spring(slideAnim, {
                     toValue: 0,
                     useNativeDriver: true,
                     tension: 65,
                     friction: 11,
                }).start();
-          } else {
+          } else if (mounted) {
+               // When closing: slide out first, then hide modal
                Animated.timing(slideAnim, {
                     toValue: -DRAWER_WIDTH,
                     duration: 250,
                     useNativeDriver: true,
-               }).start();
+               }).start(({ finished }) => {
+                    if (finished) {
+                         setMounted(false);
+                    }
+               });
           }
-     }, [visible, slideAnim]);
+     }, [visible, mounted, slideAnim]);
 
      const handleNavigation = (route: string) => {
           onClose();
@@ -65,9 +81,27 @@ export function BurgerMenu({ visible, onClose }: BurgerMenuProps) {
           }, 300);
      };
 
+     const handleLogout = async () => {
+          onClose();
+          await signOut();
+          setTimeout(() => {
+               navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Auth' as never }],
+               });
+          }, 100);
+     };
+
+     const handleDocs = () => {
+          onClose();
+          // Replace with in-app docs route if you add one later
+          // For now, this can be wired to a WebView screen
+          // navigation.navigate('Main', { screen: 'Docs' });
+     };
+
      return (
           <Modal
-               visible={visible}
+               visible={mounted}
                transparent
                animationType="none"
                onRequestClose={onClose}
@@ -86,7 +120,10 @@ export function BurgerMenu({ visible, onClose }: BurgerMenuProps) {
                          <SafeAreaView style={styles.drawerContent}>
                               {/* Header */}
                               <View style={styles.header}>
-                                   <Text style={styles.appTitle}>Menu</Text>
+                                   <View style={styles.headerTitleRow}>
+                                        <Image source={HEADER_ICON} style={styles.headerIconImage} />
+                                        <Text style={styles.appTitle}>Menu</Text>
+                                   </View>
                                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                                         <IconSymbol name="xmark" size={24} color="#666" />
                                    </TouchableOpacity>
@@ -104,6 +141,25 @@ export function BurgerMenu({ visible, onClose }: BurgerMenuProps) {
                                              <Text style={styles.menuItemText}>{item.label}</Text>
                                         </TouchableOpacity>
                                    ))}
+                              </View>
+                              {/* Footer */}
+                              <View style={styles.footer}>
+                                   <TouchableOpacity style={styles.docsButton} onPress={handleDocs}>
+                                        <IconSymbol
+                                             name="doc.text.fill"
+                                             size={22}
+                                             color={Colors.primary.main}
+                                        />
+                                        <Text style={styles.docsText}>Docs</Text>
+                                   </TouchableOpacity>
+                                   <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+                                        <IconSymbol
+                                             name="rectangle.portrait.and.arrow.right"
+                                             size={20}
+                                             color="#dc2626"
+                                        />
+                                        <Text style={styles.logoutText}>Logout</Text>
+                                   </TouchableOpacity>
                               </View>
                          </SafeAreaView>
                     </Animated.View>
@@ -178,6 +234,7 @@ const styles = StyleSheet.create({
           borderTopColor: '#e5e7eb',
           paddingHorizontal: 20,
           paddingVertical: 16,
+          gap: 12,
      },
      logoutButton: {
           flexDirection: 'row',
@@ -189,5 +246,27 @@ const styles = StyleSheet.create({
           fontSize: 16,
           color: '#dc2626',
           fontWeight: '600',
+     },
+     docsButton: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 16,
+          paddingVertical: 8,
+     },
+     docsText: {
+          fontSize: 16,
+          color: '#111827',
+          fontWeight: '500',
+     },
+     headerTitleRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+     },
+     headerIconImage: {
+          width: 24,
+          height: 24,
+          borderRadius: 12,
+          backgroundColor: '#e5e7eb',
      },
 });
