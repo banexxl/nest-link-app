@@ -56,14 +56,14 @@ export default function RootLayout() {
   useEffect(() => {
     if (Platform.OS !== 'android') return;
 
-    const hideNavigationBar = () => {
-      NavigationBar.setBehaviorAsync('overlay-swipe').catch(() => { });
-      NavigationBar.setVisibilityAsync('hidden').catch(() => { });
+    const showNavigationBar = () => {
+      NavigationBar.setBehaviorAsync('inset-swipe').catch(() => { });
+      NavigationBar.setVisibilityAsync('visible').catch(() => { });
     };
 
-    hideNavigationBar();
+    showNavigationBar();
     const sub = AppState.addEventListener('change', state => {
-      if (state === 'active') hideNavigationBar();
+      if (state === 'active') showNavigationBar();
     });
 
     return () => sub.remove();

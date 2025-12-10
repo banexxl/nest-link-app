@@ -17,6 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProfileMenu } from './profile-menu';
 
 const AVATAR_SOURCES: Record<string, any> = {
@@ -41,12 +42,14 @@ const AVATAR_SOURCES: Record<string, any> = {
 
 export function CustomTabBar(props: BottomTabBarProps) {
   const { session, tenantId } = useAuth();
+  const screenInsets = useSafeAreaInsets();
   const [burgerVisible, setBurgerVisible] = useState(false);
   const [profileVisible, setProfileVisible] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [loadingAvatar, setLoadingAvatar] = useState(false);
   const translateY = useRef(new Animated.Value(0)).current;
   const [isHidden, setIsHidden] = useState(false);
+  const [barHeight, setBarHeight] = useState(0);
 
   const initials = useMemo(() => {
     const fullName =
@@ -127,10 +130,11 @@ export function CustomTabBar(props: BottomTabBarProps) {
       TAB_BAR_SCROLL_EVENT,
       (payload?: { direction?: string }) => {
         const direction = payload?.direction;
+        const hideOffset = (barHeight || 80) + (screenInsets.bottom ?? 0);
         if (direction === 'up' && !isHidden) {
           setIsHidden(true);
           Animated.timing(translateY, {
-            toValue: 100,
+            toValue: hideOffset,
             duration: 200,
             useNativeDriver: true,
           }).start();
@@ -148,7 +152,7 @@ export function CustomTabBar(props: BottomTabBarProps) {
     return () => {
       listener.remove();
     };
-  }, [isHidden, translateY]);
+  }, [isHidden, translateY, barHeight, screenInsets.bottom]);
 
   const handleCamera = useCallback(async () => {
     try {
@@ -178,16 +182,23 @@ export function CustomTabBar(props: BottomTabBarProps) {
     }
   }, [props.navigation, props.state.routeNames]);
 
+  // Use safe-area bottom inset so the bar sits above the system nav bar
+  const bottomInset = screenInsets.bottom ?? 0;
+
   return (
     <>
       <Animated.View
         style={[
           styles.container,
           {
-            paddingBottom: 10,
+            // Add extra padding for the safe area at the bottom
+            paddingBottom: bottomInset + 12,
             transform: [{ translateY }],
           },
         ]}
+        onLayout={(e) => {
+          setBarHeight(e.nativeEvent.layout.height);
+        }}
       >
         {/* Left - Burger Menu */}
         <TouchableOpacity
@@ -246,7 +257,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 8,
-    minHeight: 70,
+    height: 120,
     position: 'absolute',
     left: 0,
     right: 0,
