@@ -25,9 +25,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  useWindowDimensions
 } from 'react-native';
-import { useWindowDimensions } from 'react-native';
 
 const PRIMARY_COLOR = '#f68a00';
 
@@ -48,7 +48,25 @@ type IncidentCategory =
   | 'parking'
   | 'it'
   | 'waste'
-  | string;
+
+const incidentCategories: { label: string; value: IncidentCategory }[] = [
+  { label: 'Plumbing', value: 'plumbing' },
+  { label: 'Electrical', value: 'electrical' },
+  { label: 'Noise', value: 'noise' },
+  { label: 'Cleaning', value: 'cleaning' },
+  { label: 'Common Area', value: 'common_area' },
+  { label: 'Heating', value: 'heating' },
+  { label: 'Cooling', value: 'cooling' },
+  { label: 'Structural', value: 'structural' },
+  { label: 'Interior', value: 'interior' },
+  { label: 'Outdoor Safety', value: 'outdoorsafety' },
+  { label: 'Security', value: 'security' },
+  { label: 'Pests', value: 'pests' },
+  { label: 'Administrative', value: 'administrative' },
+  { label: 'Parking', value: 'parking' },
+  { label: 'IT', value: 'it' },
+  { label: 'Waste', value: 'waste' },
+];
 
 type IncidentPriority = 'low' | 'medium' | 'high' | 'urgent' | string;
 
@@ -98,7 +116,7 @@ type NewIncidentForm = {
 const defaultForm: NewIncidentForm = {
   title: '',
   description: '',
-  category: 'other',
+  category: 'electrical',
   priority: 'medium',
   is_emergency: false,
 };
@@ -412,7 +430,7 @@ const ServiceRequestsScreen: React.FC = () => {
       const payload = {
         title: form.title.trim(),
         description: form.description.trim(),
-        category: form.category || 'other',
+        category: form.category || 'electrical',
         priority: form.priority || 'medium',
         is_emergency: form.is_emergency,
         status: 'open' as IncidentStatus,
@@ -805,18 +823,18 @@ const ServiceRequestsScreen: React.FC = () => {
 
               <Text style={styles.fieldLabel}>Category</Text>
               <View style={styles.chipRow}>
-                {['plumbing', 'electrical', 'heating', 'common_area', 'other'].map(
+                {incidentCategories.map(
                   (cat) => {
-                    const isSelected = form.category === cat;
+                    const isSelected = form.category === cat.value;
                     return (
                       <TouchableOpacity
-                        key={cat}
+                        key={cat.value}
                         style={[
                           styles.chip,
                           isSelected && styles.chipSelected,
                         ]}
                         onPress={() =>
-                          handleChangeForm('category', cat as IncidentCategory)
+                          handleChangeForm('category', cat.value as IncidentCategory)
                         }
                       >
                         <Text
@@ -825,7 +843,7 @@ const ServiceRequestsScreen: React.FC = () => {
                             isSelected && styles.chipTextSelected,
                           ]}
                         >
-                          {cat.replace('_', ' ')}
+                          {cat.label}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -996,11 +1014,20 @@ const ServiceRequestsScreen: React.FC = () => {
               </View>
             </ScrollView>
           ) : (
-            <View style={styles.center}>
+            <ScrollView
+              contentContainerStyle={{
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+              }}
+              style={{ maxHeight: detailsMaxHeight - 28 }}
+              showsVerticalScrollIndicator={false}
+            >
               <Text style={styles.emptyText}>
                 Select a service request from the list above or create a new one.
               </Text>
-            </View>
+            </ScrollView>
           )}
         </View>
       </KeyboardAvoidingView>
