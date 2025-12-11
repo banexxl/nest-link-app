@@ -28,7 +28,7 @@ export const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 24,
+    paddingBottom: 84,
   },
   errorText: {
     color: '#d00',

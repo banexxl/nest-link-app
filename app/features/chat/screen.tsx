@@ -55,11 +55,13 @@ export default function ChatScreen() {
   const [likingPostIds, setLikingPostIds] = useState<Set<string>>(new Set());
   const [commentingPostIds, setCommentingPostIds] = useState<Set<string>>(new Set());
   const [likingCommentIds, setLikingCommentIds] = useState<Set<string>>(new Set());
+  const [visibleCommentCounts, setVisibleCommentCounts] = useState<Record<string, number>>({});
 
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalItems, setLikesModalItems] = useState<string[]>([]);
 
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [tenantNames, setTenantNames] = useState<Record<string, string>>({});
   const PAGE_SIZE = 10;
   const [postsOffset, setPostsOffset] = useState(0);
   const [hasMorePosts, setHasMorePosts] = useState(true);
@@ -193,7 +195,7 @@ export default function ChatScreen() {
     if (buildingId) {
       fetchPosts(true);
     }
-  }, [buildingId, fetchPosts]);
+  }, [buildingId]);
 
   // Pre-sign all post images (can be optimized later if needed)
   useEffect(() => {
@@ -208,6 +210,37 @@ export default function ChatScreen() {
       signAll();
     }
   }, [posts, signedUrls]);
+
+  // Resolve display names for all tenants who authored posts/comments
+  useEffect(() => {
+    const syncTenantNames = async () => {
+      const ids = new Set<string>();
+      posts.forEach((post) => {
+        if (post.tenant_id) ids.add(post.tenant_id);
+        (post.comments ?? []).forEach((c) => {
+          if (c.tenant_id) ids.add(c.tenant_id);
+        });
+      });
+
+      const missing = Array.from(ids).filter((id) => !tenantNames[id]);
+      if (!missing.length) return;
+
+      try {
+        const { names } = await fetchTenantNamesByIds(missing);
+        const map: Record<string, string> = {};
+        missing.forEach((id, index) => {
+          map[id] = names[index] ?? 'Unknown tenant';
+        });
+        setTenantNames((prev) => ({ ...prev, ...map }));
+      } catch {
+        // ignore name resolution failures; keep existing labels
+      }
+    };
+
+    if (posts.length > 0) {
+      syncTenantNames();
+    }
+  }, [posts, tenantNames]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -525,6 +558,7 @@ export default function ChatScreen() {
     const likeCount = item.likes?.length ?? 0;
     const commentCount = item.comments?.length ?? 0;
     const createdLabel = new Date(item.created_at).toLocaleString();
+    const postAuthorName = item.tenant_id ? tenantNames[item.tenant_id] : undefined;
     const isLikedByMe = !!(
       tenantId && (item.likes ?? []).some((l) => l.tenant_id === tenantId)
     );
@@ -539,13 +573,16 @@ export default function ChatScreen() {
         (a, b) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
-    const visibleCount = Math.min(10, sortedComments.length);
+    const initialVisible = visibleCommentCounts[item.id] ?? 10;
+    const visibleCount = Math.min(initialVisible, sortedComments.length);
     const visibleComments = sortedComments.slice(0, visibleCount);
     const hasMoreComments = sortedComments.length > visibleCount;
 
     return (
       <View style={styles.postCard}>
-        <Text style={styles.postMeta}>{createdLabel}</Text>
+        <Text style={styles.postMeta}>
+          {postAuthorName ? `${postAuthorName} · ${createdLabel}` : createdLabel}
+        </Text>
         {item.content_text ? (
           <Text style={styles.postText}>{item.content_text}</Text>
         ) : null}
@@ -561,7 +598,13 @@ export default function ChatScreen() {
                 <Text style={styles.commentText}>{c.comment_text ?? ''}</Text>
                 <View style={styles.commentFooterRow}>
                   <Text style={styles.commentMeta}>
-                    {new Date(c.created_at).toLocaleString()}
+                    {(() => {
+                      const commentAuthorName = c.tenant_id
+                        ? tenantNames[c.tenant_id]
+                        : undefined;
+                      const ts = new Date(c.created_at).toLocaleString();
+                      return commentAuthorName ? `${commentAuthorName} · ${ts}` : ts;
+                    })()}
                   </Text>
                   <TouchableOpacity
                     style={styles.commentLikeButton}
@@ -575,7 +618,7 @@ export default function ChatScreen() {
                       <Text
                         style={[
                           styles.commentLikeText,
-                          (c.likes ?? []).some((l) => l.tenant_id === userId) &&
+                          tenantId && (c.likes ?? []).some((l) => l.tenant_id === tenantId) &&
                           styles.commentLikeTextActive,
                         ]}
                       >
@@ -592,7 +635,12 @@ export default function ChatScreen() {
             {hasMoreComments && (
               <TouchableOpacity
                 style={styles.loadMoreCommentsButton}
-                onPress={() => { /* In a real app, you could wire this to fetch older comments from the server. */ }}
+                onPress={() =>
+                  setVisibleCommentCounts((prev) => ({
+                    ...prev,
+                    [item.id]: (prev[item.id] ?? 10) + 10,
+                  }))
+                }
                 activeOpacity={0.8}
               >
                 <Text style={styles.loadMoreCommentsText}>Load older comments</Text>
