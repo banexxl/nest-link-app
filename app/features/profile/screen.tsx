@@ -1,4 +1,5 @@
 // app/main/profile.tsx  (or wherever you keep authenticated screens)
+import { registerForPushNotificationsAsync, sendPushNotification } from '@/app/lib/push-notifications';
 import { useAuth } from '@/context/auth-context';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -221,6 +222,23 @@ const ProfileScreen: React.FC = () => {
     await signOut();
   };
 
+  const handleTestNotification = useCallback(async () => {
+    try {
+      const token = await registerForPushNotificationsAsync();
+      if (!token) {
+        return;
+      }
+
+      await sendPushNotification(token, {
+        title: 'NestLink test',
+        body: 'This is a test notification from your profile.',
+        data: { screen: 'chat' },
+      });
+    } catch (err) {
+      console.warn('Failed to send test notification', err);
+    }
+  }, []);
+
   const handleSelectAvatar = async (option: AvatarOption) => {
     if (!session?.user?.id && !resolvedTenantId && !tenantId) {
       setAvatarError('No active session found.');
@@ -348,6 +366,14 @@ const ProfileScreen: React.FC = () => {
 
             {/* Actions */}
             <View style={styles.actionsCard}>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={handleTestNotification}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonLabel}>Send test notification</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.secondaryButton}
                 onPress={handleSignOut}
