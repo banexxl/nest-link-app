@@ -779,7 +779,7 @@ export default function ChatScreen() {
       <FlatList
         data={posts}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderComposer}
+        ListHeaderComponent={renderComposer()}
         renderItem={renderPostItem}
         contentContainerStyle={styles.listContent}
         refreshControl={
