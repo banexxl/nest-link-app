@@ -203,8 +203,7 @@ export async function createTenantPost(payload: {
           comment_id,
           tenant_id,
           created_at,
-          emoji,
-          building_id
+          emoji
         )
       )
     `
@@ -267,8 +266,7 @@ export async function addPostComment(payload: {
         comment_id,
         tenant_id,
         created_at,
-        emoji,
-        building_id
+        emoji
       )
     `
     )

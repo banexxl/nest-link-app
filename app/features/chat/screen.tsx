@@ -19,9 +19,6 @@ import {
 import {
   TenantPost,
   TenantPostComment,
-  TenantPostCommentLike,
-  TenantPostImage,
-  TenantPostLike,
   addCommentLike,
   addPostComment,
   addPostLike,
@@ -33,7 +30,7 @@ import {
   removePostLike,
   resolveChatBuilding,
   resolveTenant,
-  resolveTenantAndProfile,
+  resolveTenantAndProfile
 } from './server-actions';
 import { PRIMARY_COLOR, styles } from './styles';
 
@@ -244,7 +241,6 @@ export default function ChatScreen() {
         profile_id: profileId,
         tenant_id: resolvedTenantId,
       };
-      console.log('payload', payload);
 
       const { post, error: createError } = await createTenantPost(payload);
 
@@ -293,9 +289,9 @@ export default function ChatScreen() {
           prev.map((p) =>
             p.id === post.id
               ? {
-                  ...p,
-                  likes: (p.likes ?? []).filter((l) => l.id !== alreadyLiked.id),
-                }
+                ...p,
+                likes: (p.likes ?? []).filter((l) => l.id !== alreadyLiked.id),
+              }
               : p
           )
         );
@@ -315,9 +311,9 @@ export default function ChatScreen() {
           prev.map((p) =>
             p.id === post.id
               ? {
-                  ...p,
-                  likes: [...(p.likes ?? []), like],
-                }
+                ...p,
+                likes: [...(p.likes ?? []), like],
+              }
               : p
           )
         );
@@ -370,9 +366,9 @@ export default function ChatScreen() {
         prev.map((p) =>
           p.id === post.id
             ? {
-                ...p,
-                comments: [...(p.comments ?? []), comment],
-              }
+              ...p,
+              comments: [...(p.comments ?? []), comment],
+            }
             : p
         )
       );
@@ -410,16 +406,16 @@ export default function ChatScreen() {
           prev.map((p) =>
             p.id === postId
               ? {
-                  ...p,
-                  comments: (p.comments ?? []).map((c) =>
-                    c.id === comment.id
-                      ? {
-                          ...c,
-                          likes: (c.likes ?? []).filter((l) => l.id !== alreadyLiked.id),
-                        }
-                      : c
-                  ),
-                }
+                ...p,
+                comments: (p.comments ?? []).map((c) =>
+                  c.id === comment.id
+                    ? {
+                      ...c,
+                      likes: (c.likes ?? []).filter((l) => l.id !== alreadyLiked.id),
+                    }
+                    : c
+                ),
+              }
               : p
           )
         );
@@ -439,16 +435,16 @@ export default function ChatScreen() {
           prev.map((p) =>
             p.id === postId
               ? {
-                  ...p,
-                  comments: (p.comments ?? []).map((c) =>
-                    c.id === comment.id
-                      ? {
-                          ...c,
-                          likes: [...(c.likes ?? []), like],
-                        }
-                      : c
-                  ),
-                }
+                ...p,
+                comments: (p.comments ?? []).map((c) =>
+                  c.id === comment.id
+                    ? {
+                      ...c,
+                      likes: [...(c.likes ?? []), like],
+                    }
+                    : c
+                ),
+              }
               : p
           )
         );

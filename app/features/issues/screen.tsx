@@ -356,29 +356,22 @@ const ServiceRequestsScreen: React.FC = () => {
 
     setCommentSubmitting(true);
     try {
-      const payload = {
+      const { comment, error } = await createIncidentComment({
         incident_id: selectedIncident.id,
         user_id: profileId,
         message: msg,
-      };
-
-      const { data, error } = await supabase
-        .from('tblIncidentReportComments')
-        .insert(payload)
-        .select('id, user_id, message, created_at')
-        .single();
+      });
 
       if (error) {
         console.log('Error adding comment:', error);
-      } else if (data) {
-        const newComment = data as IncidentComment;
+      } else if (comment) {
         setIncidents((prev) =>
           prev.map((inc) =>
             inc.id === selectedIncident.id
               ? {
-                ...inc,
-                comments: [...(inc.comments ?? []), newComment],
-              }
+                  ...inc,
+                  comments: [...(inc.comments ?? []), comment],
+                }
               : inc
           )
         );
@@ -389,9 +382,7 @@ const ServiceRequestsScreen: React.FC = () => {
     } finally {
       setCommentSubmitting(false);
     }
-  };
-
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  };  const renderIncidentItem = ({ item }: { item: Incident }) => {
     const isSelected = item.id === selectedIncidentId;
     const created = new Date(item.created_at).toLocaleDateString();
     const statusLabel = item.status.toString().replace(/_/g, ' ');
@@ -487,16 +478,10 @@ const ServiceRequestsScreen: React.FC = () => {
 
     const key = `${img.storage_bucket}:${img.storage_path}`;
 
-    // 1) Prefer an already working URL
     let url: any = signedUrls[key] ?? null;
 
-    // 2) If we don’t have it yet, sign it once
     if (!url) {
-      url = await signFileUrl({
-        bucket: img.storage_bucket,
-        path: img.storage_path,
-        ttlSeconds: 60 * 20,
-      });
+      url = await signIncidentImage(img);
 
       if (!url) {
         console.error('openIncidentImage failed to sign URL', { key });
@@ -507,10 +492,7 @@ const ServiceRequestsScreen: React.FC = () => {
     }
 
     setSelectedImageUrl(url);
-  };
-
-
-  const renderIncidentImages = (incident: Incident) => {
+  };  const renderIncidentImages = (incident: Incident) => {
     if (!incident.images || incident.images.length === 0) {
       return null;
     }

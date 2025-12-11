@@ -21,7 +21,7 @@ export async function signFileUrl(
           if (!API_BASE_URL) {
                throw new Error('EXPO_PUBLIC_WEB_APP_URL is missing');
           }
-          console.log(`${API_BASE_URL}/api/storage/sign-file`)
+
           const res = await fetch(`${API_BASE_URL}/api/storage/sign-file`, {
                method: 'POST',
                headers: { 'Content-Type': 'application/json' },
