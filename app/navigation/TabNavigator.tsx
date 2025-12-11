@@ -5,6 +5,7 @@ import React from 'react';
 // Import tab screens
 import AnnouncementsScreen from '../(tabs)/announcements';
 import CalendarScreen from '../(tabs)/calendar';
+import ChatScreen from '../(tabs)/chat';
 import IssuesScreen from '../(tabs)/issues';
 import PollsScreen from '../(tabs)/polls';
 import ProfileScreen from '../(tabs)/profile';
@@ -24,6 +25,7 @@ export default function TabNavigator() {
                <Tab.Screen name="Calendar" component={CalendarScreen} />
                <Tab.Screen name="Polls" component={PollsScreen} />
                <Tab.Screen name="Issues" component={IssuesScreen} />
+               <Tab.Screen name="Chat" component={ChatScreen} />
           </Tab.Navigator>
      );
 }
