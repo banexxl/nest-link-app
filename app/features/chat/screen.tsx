@@ -43,7 +43,6 @@ type TenantPostCommentLike = {
   tenant_id: string | null;
   created_at: string;
   emoji: string | null;
-  building_id: string | null;
 };
 
 type TenantPostComment = {
@@ -79,6 +78,7 @@ export default function ChatScreen() {
   const { handleScroll } = useTabBarScroll();
 
   const [buildingId, setBuildingId] = useState<string | null>(null);
+  const [tenantId, setTenantId] = useState<string | null>(null);
   const [posts, setPosts] = useState<TenantPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -96,6 +96,10 @@ export default function ChatScreen() {
   const [likesModalItems, setLikesModalItems] = useState<string[]>([]);
 
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const PAGE_SIZE = 10;
+  const [postsOffset, setPostsOffset] = useState(0);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
 
   // Resolve current tenant's building_id from the authenticated user
   useEffect(() => {
@@ -127,16 +131,57 @@ export default function ChatScreen() {
     loadBuilding();
   }, [userId]);
 
-  const fetchPosts = useCallback(async () => {
-    if (!buildingId) return;
+  // Resolve current tenant_id from the authenticated user (for likes, etc.)
+  useEffect(() => {
+    const loadTenant = async () => {
+      if (!userId) {
+        setTenantId(null);
+        return;
+      }
 
-    setError(null);
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('tblTenantPosts')
-        .select(
-          `
+      try {
+        const { data, error } = await supabase
+          .from('tblTenants')
+          .select('id')
+          .eq('user_id', userId)
+          .single();
+
+        if (error || !data) {
+          setTenantId(null);
+          return;
+        }
+
+        setTenantId((data as any).id as string);
+      } catch {
+        setTenantId(null);
+      }
+    };
+
+    loadTenant();
+  }, [userId]);
+
+  const fetchPosts = useCallback(
+    async (reset: boolean) => {
+      if (!buildingId) return;
+
+      setError(null);
+      if (reset) {
+        setLoading(true);
+        setHasMorePosts(true);
+        setPostsOffset(0);
+      } else {
+        if (!hasMorePosts || loadingMorePosts) return;
+        setLoadingMorePosts(true);
+      }
+
+      const from = reset ? 0 : postsOffset;
+      const to = from + PAGE_SIZE - 1;
+
+      try {
+        const { data, error } = await supabase
+          .from('tblTenantPosts')
+          .select(
+            `
           id,
           content_text,
           created_at,
@@ -170,34 +215,62 @@ export default function ChatScreen() {
               comment_id,
               tenant_id,
               created_at,
-              emoji,
-              building_id
+              emoji
             )
           )
         `
-        )
-        .eq('building_id', buildingId)
-        .eq('is_archived', false)
-        .order('created_at', { ascending: false });
+          )
+          .eq('building_id', buildingId)
+          .eq('is_archived', false)
+          .order('created_at', { ascending: false })
+          .range(from, to);
 
-      if (error) {
-        setError(error.message);
-        setPosts([]);
-      } else {
-        setPosts((data ?? []) as TenantPost[]);
+        if (error) {
+          if (reset) {
+            setError(error.message);
+            setPosts([]);
+          }
+        } else {
+          const newPosts = (data ?? []) as TenantPost[];
+          setHasMorePosts(newPosts.length === PAGE_SIZE);
+
+          if (reset) {
+            setPosts(newPosts);
+            setPostsOffset(newPosts.length);
+          } else if (newPosts.length) {
+            setPosts((prev) => {
+              const existingIds = new Set(prev.map((p) => p.id));
+              const merged = [...prev];
+              newPosts.forEach((p) => {
+                if (!existingIds.has(p.id)) {
+                  merged.push(p);
+                }
+              });
+              return merged;
+            });
+            setPostsOffset((prev) => prev + newPosts.length);
+          }
+        }
+      } catch (err: any) {
+        if (reset) {
+          setError(err?.message ?? 'Failed to load posts.');
+          setPosts([]);
+        }
+      } finally {
+        if (reset) {
+          setLoading(false);
+          setRefreshing(false);
+        } else {
+          setLoadingMorePosts(false);
+        }
       }
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to load posts.');
-      setPosts([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [buildingId]);
+    },
+    [buildingId, PAGE_SIZE, hasMorePosts, loadingMorePosts, postsOffset]
+  );
 
   useEffect(() => {
     if (buildingId) {
-      fetchPosts();
+      fetchPosts(true);
     }
   }, [buildingId, fetchPosts]);
 
@@ -246,7 +319,7 @@ export default function ChatScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchPosts();
+    await fetchPosts(true);
   };
 
   const handleCreatePost = async () => {
@@ -259,13 +332,48 @@ export default function ChatScreen() {
 
     setPosting(true);
     try {
+      // Resolve tenant_id from tblTenants using user_id
+      const { data: tenantRow, error: tenantError } = await supabase
+        .from('tblTenants')
+        .select('id')
+        .eq('user_id', userId)
+        .single();
+
+      if (tenantError || !tenantRow) {
+        Alert.alert(
+          'Post error',
+          tenantError?.message ?? 'Could not resolve tenant for this user.'
+        );
+        return;
+      }
+
+      const tenantId = (tenantRow as any).id as string;
+
+      // Resolve profile_id from tblTenantProfiles using tenant_id
+      const { data: profileRow, error: profileError } = await supabase
+        .from('tblTenantProfiles')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (profileError || !profileRow) {
+        Alert.alert(
+          'Post error',
+          profileError?.message ?? 'Could not resolve tenant profile for this user.'
+        );
+        return;
+      }
+
+      const profileId = (profileRow as any).id as string;
+
       const payload = {
         content_text: text,
         building_id: buildingId,
         is_archived: false,
-        profile_id: userId,
-        tenant_id: null as string | null,
+        profile_id: profileId,
+        tenant_id: tenantId,
       };
+      console.log('payload', payload);
 
       const { data, error } = await supabase
         .from('tblTenantPosts')
@@ -332,10 +440,27 @@ export default function ChatScreen() {
       return;
     }
 
-    const alreadyLiked = (post.likes ?? []).find((l) => l.tenant_id === userId);
-
     setLikingPostIds((prev) => new Set(prev).add(post.id));
     try {
+      // Resolve tenant_id from tblTenants using user_id
+      const { data: tenantRow, error: tenantError } = await supabase
+        .from('tblTenants')
+        .select('id')
+        .eq('user_id', userId)
+        .single();
+
+      if (tenantError || !tenantRow) {
+        Alert.alert(
+          'Like error',
+          tenantError?.message ?? 'Could not resolve tenant for this user.'
+        );
+        return;
+      }
+
+      const tenantId = (tenantRow as any).id as string;
+
+      const alreadyLiked = (post.likes ?? []).find((l) => l.tenant_id === tenantId);
+
       if (alreadyLiked) {
         const { error } = await supabase
           .from('tblTenantPostLikes')
@@ -360,7 +485,7 @@ export default function ChatScreen() {
       } else {
         const payload = {
           post_id: post.id,
-          tenant_id: userId,
+          tenant_id: tenantId,
           emoji: '👍' as string | null,
         };
 
@@ -407,10 +532,44 @@ export default function ChatScreen() {
 
     setCommentingPostIds((prev) => new Set(prev).add(post.id));
     try {
+      // Resolve tenant_id from tblTenants using user_id
+      const { data: tenantRow, error: tenantError } = await supabase
+        .from('tblTenants')
+        .select('id')
+        .eq('user_id', userId)
+        .single();
+
+      if (tenantError || !tenantRow) {
+        Alert.alert(
+          'Comment error',
+          tenantError?.message ?? 'Could not resolve tenant for this user.'
+        );
+        return;
+      }
+
+      const tenantId = (tenantRow as any).id as string;
+
+      // Resolve profile_id from tblTenantProfiles using tenant_id
+      const { data: profileRow, error: profileError } = await supabase
+        .from('tblTenantProfiles')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (profileError || !profileRow) {
+        Alert.alert(
+          'Comment error',
+          profileError?.message ?? 'Could not resolve tenant profile for this user.'
+        );
+        return;
+      }
+
+      const profileId = (profileRow as any).id as string;
+
       const payload = {
         post_id: post.id,
-        tenant_id: userId,
-        profile_id: userId,
+        tenant_id: tenantId,
+        profile_id: profileId,
         comment_text: draft,
         client_id: null as string | null,
         building_id: buildingId,
@@ -470,12 +629,12 @@ export default function ChatScreen() {
   };
 
   const handleToggleCommentLike = async (postId: string, comment: TenantPostComment) => {
-    if (!userId || !buildingId) {
-      Alert.alert('Like error', 'Missing user or building information.');
+    if (!userId || !tenantId) {
+      Alert.alert('Like error', 'Missing user or tenant information.');
       return;
     }
 
-    const alreadyLiked = (comment.likes ?? []).find((l) => l.tenant_id === userId);
+    const alreadyLiked = (comment.likes ?? []).find((l) => l.tenant_id === tenantId);
 
     setLikingCommentIds((prev) => new Set(prev).add(comment.id));
     try {
@@ -510,15 +669,14 @@ export default function ChatScreen() {
       } else {
         const payload = {
           comment_id: comment.id,
-          tenant_id: userId,
+          tenant_id: tenantId,
           emoji: '👍' as string | null,
-          building_id: buildingId,
         };
 
         const { data, error } = await supabase
           .from('tblTenantPostCommentLikes')
           .insert(payload)
-          .select('id, comment_id, tenant_id, created_at, emoji, building_id')
+          .select('id, comment_id, tenant_id, created_at, emoji')
           .single();
 
         if (error) {
@@ -555,13 +713,55 @@ export default function ChatScreen() {
     }
   };
 
-  const openPostLikesModal = (post: TenantPost) => {
+  const openPostLikesModal = async (post: TenantPost) => {
     const likes = post.likes ?? [];
     if (!likes.length) return;
 
-    const items = likes.map((l, index) => l.tenant_id ?? `User ${index + 1}`);
-    setLikesModalItems(items);
-    setLikesModalVisible(true);
+    const tenantIds = Array.from(
+      new Set(
+        likes
+          .map((l) => l.tenant_id)
+          .filter((id): id is string => !!id)
+      )
+    );
+
+    if (!tenantIds.length) {
+      const fallback = likes.map((_, index) => `User ${index + 1}`);
+      setLikesModalItems(fallback);
+      setLikesModalVisible(true);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('tblTenants')
+        .select('id, first_name, last_name')
+        .in('id', tenantIds);
+
+      if (error || !data) {
+        const fallback = tenantIds;
+        setLikesModalItems(fallback);
+        setLikesModalVisible(true);
+        return;
+      }
+
+      const items = tenantIds.map((id) => {
+        const row = (data as any[]).find((t) => t.id === id) as
+          | { id: string; first_name?: string | null; last_name?: string | null }
+          | undefined;
+        const first = row?.first_name ?? '';
+        const last = row?.last_name ?? '';
+        const full = `${first} ${last}`.trim();
+        return full || 'Unknown tenant';
+      });
+
+      setLikesModalItems(items);
+      setLikesModalVisible(true);
+    } catch {
+      const fallback = tenantIds;
+      setLikesModalItems(fallback);
+      setLikesModalVisible(true);
+    }
   };
 
   const renderPostImages = (post: TenantPost) => {
@@ -600,11 +800,23 @@ export default function ChatScreen() {
     const likeCount = item.likes?.length ?? 0;
     const commentCount = item.comments?.length ?? 0;
     const createdLabel = new Date(item.created_at).toLocaleString();
-
-    const isLikedByMe = !!(item.likes ?? []).find((l) => l.tenant_id === userId);
+    const isLikedByMe = !!(
+      tenantId && (item.likes ?? []).some((l) => l.tenant_id === tenantId)
+    );
+    const othersCount = isLikedByMe ? Math.max(likeCount - 1, 0) : likeCount;
     const likeBusy = likingPostIds.has(item.id);
     const commentBusy = commentingPostIds.has(item.id);
     const commentDraft = commentDrafts[item.id] ?? '';
+
+    const sortedComments = (item.comments ?? [])
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    const visibleCount = Math.min(10, sortedComments.length);
+    const visibleComments = sortedComments.slice(0, visibleCount);
+    const hasMoreComments = sortedComments.length > visibleCount;
 
     return (
       <View style={styles.postCard}>
@@ -615,55 +827,85 @@ export default function ChatScreen() {
 
         {renderPostImages(item)}
 
-        {/* Existing comments (simple list for now) */}
-        {item.comments && item.comments.length > 0 && (
+        {/* Existing comments (separated and paginated) */}
+        {visibleComments.length > 0 && (
           <View style={styles.commentsContainer}>
-            {item.comments
-              .slice()
-              .sort(
-                (a, b) =>
-                  new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-              )
-              .map((c) => (
-                <View key={c.id} style={styles.commentRow}>
-                  <Text style={styles.commentText}>{c.comment_text ?? ''}</Text>
-                  <View style={styles.commentFooterRow}>
-                    <Text style={styles.commentMeta}>
-                      {new Date(c.created_at).toLocaleString()}
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.commentLikeButton}
-                      activeOpacity={0.7}
-                      onPress={() => handleToggleCommentLike(item.id, c)}
-                      disabled={likingCommentIds.has(c.id)}
-                    >
-                      {likingCommentIds.has(c.id) ? (
-                        <ActivityIndicator size="small" color={PRIMARY_COLOR} />
-                      ) : (
-                        <Text
-                          style={[
-                            styles.commentLikeText,
-                            (c.likes ?? []).some((l) => l.tenant_id === userId) &&
-                            styles.commentLikeTextActive,
-                          ]}
-                        >
-                          {(() => {
-                            const count = c.likes?.length ?? 0;
-                            return count > 0 ? `Like (${count})` : 'Like';
-                          })()}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
+            <Text style={styles.commentsHeader}>Comments</Text>
+            {visibleComments.map((c) => (
+              <View key={c.id} style={styles.commentRow}>
+                <Text style={styles.commentText}>{c.comment_text ?? ''}</Text>
+                <View style={styles.commentFooterRow}>
+                  <Text style={styles.commentMeta}>
+                    {new Date(c.created_at).toLocaleString()}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.commentLikeButton}
+                    activeOpacity={0.7}
+                    onPress={() => handleToggleCommentLike(item.id, c)}
+                    disabled={likingCommentIds.has(c.id)}
+                  >
+                    {likingCommentIds.has(c.id) ? (
+                      <ActivityIndicator size="small" color={PRIMARY_COLOR} />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.commentLikeText,
+                          (c.likes ?? []).some((l) => l.tenant_id === userId) &&
+                          styles.commentLikeTextActive,
+                        ]}
+                      >
+                        {(() => {
+                          const count = c.likes?.length ?? 0;
+                          return count > 0 ? `Like (${count})` : 'Like';
+                        })()}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
                 </View>
-              ))}
+              </View>
+            ))}
+            {hasMoreComments && (
+              <TouchableOpacity
+                style={styles.loadMoreCommentsButton}
+                onPress={() => { /* In a real app, you could wire this to fetch older comments from the server. */ }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.loadMoreCommentsText}>Load older comments</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
         <View style={styles.postFooterRow}>
-          <Text style={styles.postCounts}>
-            {likeCount} likes · {commentCount} comments
-          </Text>
+          <TouchableOpacity
+            disabled={likeCount === 0}
+            onPress={() => likeCount > 0 && openPostLikesModal(item)}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.postCounts,
+                likeCount > 0 && styles.postCountsInteractive,
+              ]}
+            >
+              {(() => {
+                if (likeCount === 0) {
+                  return `${commentCount} comments`;
+                }
+
+                if (isLikedByMe) {
+                  if (othersCount === 0) {
+                    return `You · ${commentCount} comments`;
+                  }
+                  return `You and ${othersCount} other${othersCount > 1 ? 's' : ''
+                    } · ${commentCount} comments`;
+                }
+
+                return `${likeCount} like${likeCount > 1 ? 's' : ''
+                  } · ${commentCount} comments`;
+              })()}
+            </Text>
+          </TouchableOpacity>
           <View style={styles.postActionsRow}>
             <TouchableOpacity
               style={styles.postActionButton}
@@ -680,19 +922,10 @@ export default function ChatScreen() {
                     isLikedByMe && styles.postActionTextActive,
                   ]}
                 >
-                  {isLikedByMe ? 'Liked' : 'Like'}
+                  {isLikedByMe ? '👍' : '👍 Like'}
                 </Text>
               )}
             </TouchableOpacity>
-            {likeCount > 0 && (
-              <TouchableOpacity
-                style={styles.postActionButton}
-                activeOpacity={0.7}
-                onPress={() => openPostLikesModal(item)}
-              >
-                <Text style={styles.postActionTextSecondary}>View</Text>
-              </TouchableOpacity>
-            )}
           </View>
         </View>
 
@@ -781,6 +1014,24 @@ export default function ChatScreen() {
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderComposer()}
         renderItem={renderPostItem}
+        ListFooterComponent={
+          hasMorePosts ? (
+            <View style={styles.loadMorePostsContainer}>
+              <TouchableOpacity
+                style={styles.loadMorePostsButton}
+                onPress={() => fetchPosts(false)}
+                disabled={loadingMorePosts}
+                activeOpacity={0.85}
+              >
+                {loadingMorePosts ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.loadMorePostsText}>Load more posts</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null
+        }
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
@@ -957,6 +1208,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#777',
   },
+  postCountsInteractive: {
+    color: PRIMARY_COLOR,
+    fontWeight: '600',
+  },
   postActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -979,6 +1234,12 @@ const styles = StyleSheet.create({
   },
   commentsContainer: {
     marginTop: 8,
+  },
+  commentsHeader: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 4,
   },
   commentRow: {
     marginTop: 4,
@@ -1035,6 +1296,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  loadMoreCommentsButton: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  loadMoreCommentsText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#555',
+  },
   likesModalOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.4)',
@@ -1072,6 +1346,21 @@ const styles = StyleSheet.create({
     backgroundColor: PRIMARY_COLOR,
   },
   likesModalCloseText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  loadMorePostsContainer: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  loadMorePostsButton: {
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  loadMorePostsText: {
     color: '#fff',
     fontSize: 13,
     fontWeight: '600',
