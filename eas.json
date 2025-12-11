@@ -15,7 +15,8 @@
     },
     "production": {
       "distribution": "store",
-      "channel": "production"
+      "channel": "production",
+      "autoIncrement": true
     }
   },
   "submit": {
