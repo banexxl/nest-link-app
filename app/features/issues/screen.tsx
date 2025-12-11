@@ -3,9 +3,6 @@ import BackgroundScreen from '@/components/layouts/background-screen';
 import Loader from '@/components/loader';
 import { useAuth } from '@/context/auth-context';
 import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
-import { getBuildingIdFromUserId, getClientIdFromAuthUser } from '@/lib/sb-tenant';
-import { signFileUrl } from '@/lib/sign-file';
-import { supabase } from '@/lib/supabase';
 import { uploadIncidentImage } from '@/lib/supabase-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Image as ExpoImage } from 'expo-image';
@@ -21,33 +18,30 @@ import {
   Platform,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
   useWindowDimensions
 } from 'react-native';
-
-const PRIMARY_COLOR = '#f68a00';
-
-type IncidentCategory =
-  | 'plumbing'
-  | 'electrical'
-  | 'noise'
-  | 'cleaning'
-  | 'common_area'
-  | 'heating'
-  | 'cooling'
-  | 'structural'
-  | 'interior'
-  | 'outdoorsafety'
-  | 'security'
-  | 'pests'
-  | 'administrative'
-  | 'parking'
-  | 'it'
-  | 'waste'
+import {
+  Incident,
+  IncidentCategory,
+  IncidentComment,
+  IncidentImage,
+  IncidentPriority,
+  IncidentStatus,
+  NewIncidentForm,
+  createIncidentComment,
+  createIncidentRecord,
+  fetchCommentAuthors,
+  fetchIncidents as fetchIncidentsForBuilding,
+  prefetchIncidentImageUrls,
+  resolveClientForUser,
+  resolveIssuesBuilding,
+  signIncidentImage,
+} from './server-actions';
+import { PRIMARY_COLOR, styles } from './styles';
 
 const incidentCategories: { label: string; value: IncidentCategory }[] = [
   { label: 'Plumbing', value: 'plumbing' },
@@ -67,51 +61,6 @@ const incidentCategories: { label: string; value: IncidentCategory }[] = [
   { label: 'IT', value: 'it' },
   { label: 'Waste', value: 'waste' },
 ];
-
-type IncidentPriority = 'low' | 'medium' | 'high' | 'urgent' | string;
-
-type IncidentStatus = 'open' | 'in_progress' | 'resolved' | 'closed' | string;
-
-type Incident = {
-  id: string;
-  client_id: string | null;
-  building_id: string | null;
-  apartment_id: string | null;
-  assigned_to: string | null;
-  title: string;
-  description: string | null;
-  category: IncidentCategory;
-  priority: IncidentPriority;
-  status: IncidentStatus;
-  is_emergency: boolean;
-  created_at: string;
-  resolved_at: string | null;
-  closed_at: string | null;
-  reported_by: string | null;
-  images?: IncidentImage[];
-  comments?: IncidentComment[];
-};
-
-type IncidentImage = {
-  id: string;
-  storage_bucket: string;
-  storage_path: string;
-};
-
-type IncidentComment = {
-  id: string;
-  user_id: string | null;
-  message: string | null;
-  created_at: string;
-};
-
-type NewIncidentForm = {
-  title: string;
-  description: string;
-  category: IncidentCategory;
-  priority: IncidentPriority;
-  is_emergency: boolean;
-};
 
 const defaultForm: NewIncidentForm = {
   title: '',
@@ -185,48 +134,12 @@ const ServiceRequestsScreen: React.FC = () => {
       if (showLoading) setLoading(true);
       setError(null);
       try {
-        const { data, error } = await supabase
-          .from('tblIncidentReports')
-          .select(
-            `
-            id,
-            client_id,
-            building_id,
-            apartment_id,
-            assigned_to,
-            title,
-            description,
-            category,
-            priority,
-            status,
-            is_emergency,
-            created_at,
-            resolved_at,
-            closed_at,
-            reported_by,
-            images:tblIncidentReportImages (
-              id,
-              storage_bucket,
-              storage_path
-            ),
-            comments:tblIncidentReportComments (
-              id,
-              user_id,
-              message,
-              created_at
-            )
-          `
-          )
-          // user-specific filter: reported_by
-          // .eq('reported_by', profileId)
-          .eq('building_id', buildingId)
-          .order('created_at', { ascending: false });
+        const { incidents: result, error } = await fetchIncidentsForBuilding(profileId, buildingId);
 
         if (error) {
-          setError(error.message);
+          setError(error);
           setIncidents([]);
         } else {
-          const result = (data ?? []) as Incident[];
           setIncidents(result);
           if (!selectedIncidentId && result.length > 0) {
             setSelectedIncidentId(result[0].id);
@@ -242,7 +155,6 @@ const ServiceRequestsScreen: React.FC = () => {
     },
     [profileId, selectedIncidentId, buildingId]
   );
-
   useEffect(() => {
     if (!profileId) return;
     // Wait until buildingId is known before fetching
@@ -260,15 +172,17 @@ const ServiceRequestsScreen: React.FC = () => {
       }
 
       try {
-        const result = await getBuildingIdFromUserId(supabase, profileId);
-        if (!result.success || !result.data) {
-          setError(result.error ?? 'Unable to determine building for this tenant.');
+        const { buildingId: resolvedBuildingId, error: buildingError } =
+          await resolveIssuesBuilding(profileId);
+
+        if (!resolvedBuildingId) {
+          setError(buildingError ?? 'Unable to determine building for this tenant.');
           setBuildingId(null);
           setLoading(false);
           return;
         }
 
-        setBuildingId(result.data.buildingId);
+        setBuildingId(resolvedBuildingId);
         setError(null);
       } catch (e: any) {
         setError(e?.message ?? 'Failed to resolve building for this tenant.');
@@ -279,7 +193,6 @@ const ServiceRequestsScreen: React.FC = () => {
 
     loadBuilding();
   }, [profileId]);
-
   const handleRefresh = async () => {
     setRefreshing(true);
     await fetchIncidents(false);
@@ -288,37 +201,9 @@ const ServiceRequestsScreen: React.FC = () => {
   // Sign image URLs only for the currently selected incident
   useEffect(() => {
     const signSelectedIncidentImages = async () => {
-      if (!selectedIncident) return;
-      if (!selectedIncident.images || selectedIncident.images.length === 0) return;
+      if (!selectedIncident || !selectedIncident.images?.length) return;
 
-      const toSign: { key: string; bucket: string; path: string }[] = [];
-
-      selectedIncident.images.forEach((img) => {
-        if (!img.storage_bucket || !img.storage_path) return;
-        const key = `${img.storage_bucket}:${img.storage_path}`;
-        if (signedUrls[key]) return;
-        if (toSign.find((t) => t.key === key)) return;
-        toSign.push({
-          key,
-          bucket: img.storage_bucket,
-          path: img.storage_path,
-        });
-      });
-
-      if (!toSign.length) return;
-
-      const newMap: Record<string, string> = {};
-      for (const item of toSign) {
-        const url = await signFileUrl({
-          bucket: item.bucket,
-          path: item.path,
-          ttlSeconds: 60 * 20,
-        });
-        if (url) {
-          newMap[item.key] = url;
-        }
-      }
-
+      const newMap = await prefetchIncidentImageUrls(selectedIncident.images, signedUrls);
       if (Object.keys(newMap).length) {
         setSignedUrls((prev) => ({ ...prev, ...newMap }));
       }
@@ -326,7 +211,6 @@ const ServiceRequestsScreen: React.FC = () => {
 
     signSelectedIncidentImages();
   }, [selectedIncident, signedUrls]);
-
   // Resolve commenter display names from tblTenants.user_id
   useEffect(() => {
     const loadCommentAuthors = async () => {
@@ -343,28 +227,11 @@ const ServiceRequestsScreen: React.FC = () => {
       if (idsToResolve.size === 0) return;
 
       try {
-        const { data, error } = await supabase
-          .from('tblTenants')
-          .select('user_id, full_name')
-          .in('user_id', Array.from(idsToResolve));
+        const { authors } = await fetchCommentAuthors(Array.from(idsToResolve));
 
-        if (error) {
-          return;
-        }
+        if (Object.keys(authors).length === 0) return;
 
-        if (!data) return;
-
-        setCommentAuthors((prev) => {
-          const next = { ...prev };
-          (data as any[]).forEach((row) => {
-            const uid = row.user_id as string | null;
-            const name = (row.full_name as string | null) ?? null;
-            if (uid && name) {
-              next[uid] = name;
-            }
-          });
-          return next;
-        });
+        setCommentAuthors((prev) => ({ ...prev, ...authors }));
       } catch (err: any) {
       }
     };
@@ -373,7 +240,6 @@ const ServiceRequestsScreen: React.FC = () => {
       loadCommentAuthors();
     }
   }, [incidents, commentAuthors]);
-
   const handleSelectIncident = (id: string) => {
     setSelectedIncidentId(id);
     setCreating(false);
@@ -415,8 +281,7 @@ const ServiceRequestsScreen: React.FC = () => {
 
     setSubmitting(true);
     try {
-      // 🔹 FIRST: resolve client + building + apartment from auth user
-      const result = await getClientIdFromAuthUser(supabase, profileId);
+      const result = await resolveClientForUser(profileId);
 
       if (!result.success || !result.data) {
         setFormError(result.error ?? 'Could not resolve client/building for this tenant.');
@@ -426,7 +291,7 @@ const ServiceRequestsScreen: React.FC = () => {
 
       const { clientId, buildingId, apartmentId } = result.data;
 
-      const payload = {
+      const { incident, error } = await createIncidentRecord({
         title: form.title.trim(),
         description: form.description.trim(),
         category: form.category || 'electrical',
@@ -437,47 +302,12 @@ const ServiceRequestsScreen: React.FC = () => {
         client_id: clientId,
         building_id: buildingId,
         apartment_id: apartmentId,
-      };
+      });
 
-      const { data, error } = await supabase
-        .from('tblIncidentReports')
-        .insert(payload)
-        .select(
-          `
-        id,
-        client_id,
-        building_id,
-        apartment_id,
-        assigned_to,
-        title,
-        description,
-        category,
-        priority,
-        status,
-        is_emergency,
-        created_at,
-        resolved_at,
-        closed_at,
-        reported_by,
-        images:tblIncidentReportImages (
-          id,
-          storage_bucket,
-          storage_path
-        ),
-        comments:tblIncidentReportComments (
-          id,
-          user_id,
-          message,
-          created_at
-        )
-      `
-        )
-        .single();
-
-      if (error) {
-        setFormError(error.message ?? 'Failed to create service request.');
-      } else if (data) {
-        let newIncident = data as Incident;
+      if (error || !incident) {
+        setFormError(error ?? 'Failed to create service request.');
+      } else {
+        let newIncident = incident;
 
         if (capturedPhotoUri) {
           try {
@@ -519,10 +349,7 @@ const ServiceRequestsScreen: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
-  };
-
-
-  const handleSubmitComment = async () => {
+  };  const handleSubmitComment = async () => {
     if (!selectedIncident || !profileId) return;
     const msg = commentText.trim();
     if (!msg) return;
@@ -1089,399 +916,3 @@ const ServiceRequestsScreen: React.FC = () => {
 };
 
 export default ServiceRequestsScreen;
-
-const styles = StyleSheet.create({
-  root: {
-    marginTop: 30,
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  pageHeaderRow: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  pageHeaderTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#222',
-  },
-  pageHeaderMeta: {
-    fontSize: 12,
-    color: '#ed9633ff',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 6,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#222',
-  },
-  newButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  newButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  listCard: {
-    marginHorizontal: 16,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  listContainer: {
-    paddingTop: 4,
-    paddingBottom: 2,
-  },
-  incidentCard: {
-    width: 230,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginRight: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  incidentCardSelected: {
-    borderWidth: 1,
-    borderColor: PRIMARY_COLOR,
-  },
-  incidentCardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  incidentTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#222',
-  },
-  emergencyPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: 'rgba(220,0,0,0.1)',
-    marginLeft: 6,
-  },
-  emergencyPillText: {
-    fontSize: 11,
-    color: '#d00',
-    fontWeight: '600',
-  },
-  incidentMeta: {
-    fontSize: 11,
-    color: '#666',
-  },
-  detailsCard: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 16,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  detailsTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 2,
-  },
-  detailsStatus: {
-    fontSize: 12,
-    color: '#666',
-  },
-  emergencyLabel: {
-    marginTop: 2,
-    fontSize: 12,
-    color: '#d00',
-    fontWeight: '600',
-  },
-  detailsDescription: {
-    marginTop: 8,
-    fontSize: 13,
-    color: '#333',
-  },
-  imageThumb: {
-    width: 90,
-    height: 70,
-    borderRadius: 10,
-    backgroundColor: '#ddd',
-  },
-  imagePlaceholder: {
-    width: 90,
-    height: 70,
-    borderRadius: 10,
-    backgroundColor: '#eee',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  commentsSection: {
-    marginTop: 16,
-  },
-  commentsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 6,
-    color: '#222',
-  },
-  commentCard: {
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginBottom: 6,
-  },
-  commentAuthor: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 1,
-  },
-  commentMeta: {
-    fontSize: 11,
-    color: '#777',
-  },
-  commentText: {
-    marginTop: 2,
-    fontSize: 13,
-    color: '#333',
-  },
-  commentInput: {
-    marginTop: 8,
-    minHeight: 60,
-  },
-  commentButton: {
-    marginTop: 6,
-    borderRadius: 16,
-    paddingVertical: 8,
-    alignItems: 'center',
-    backgroundColor: PRIMARY_COLOR,
-  },
-  commentButtonDisabled: {
-    opacity: 0.7,
-  },
-  commentButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  addImageButton: {
-    marginTop: 10,
-    alignSelf: 'flex-start',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  addImageButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
-  },
-  errorText: {
-    color: '#d00',
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  fieldLabel: {
-    marginTop: 12,
-    marginBottom: 4,
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#333',
-  },
-  input: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    backgroundColor: '#fff',
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 4,
-  },
-  chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.2)',
-    marginRight: 6,
-    marginBottom: 6,
-    backgroundColor: '#fff',
-  },
-  chipSelected: {
-    borderColor: PRIMARY_COLOR,
-    backgroundColor: 'rgba(246,138,0,0.1)',
-  },
-  chipText: {
-    fontSize: 12,
-    color: '#333',
-  },
-  chipTextSelected: {
-    color: PRIMARY_COLOR,
-    fontWeight: '600',
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  checkboxOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: 'rgba(0,0,0,0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  checkboxOuterSelected: {
-    borderColor: PRIMARY_COLOR,
-  },
-  checkboxInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 2,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  toggleLabel: {
-    fontSize: 13,
-    color: '#333',
-  },
-  formError: {
-    marginTop: 6,
-    fontSize: 12,
-    color: '#d00',
-  },
-  capturedPhotoWrapper: {
-    marginTop: 10,
-    marginBottom: 10,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#f7f7fb',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
-  },
-  photoLabel: {
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 4,
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-  },
-  capturedPhoto: {
-    width: '100%',
-    height: 200,
-    backgroundColor: '#ddd',
-  },
-  removePhotoButton: {
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  removePhotoText: {
-    color: PRIMARY_COLOR,
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  submitButton: {
-    marginTop: 10,
-    borderRadius: 18,
-    paddingVertical: 11,
-    alignItems: 'center',
-    backgroundColor: PRIMARY_COLOR,
-  },
-  submitButtonDisabled: {
-    opacity: 0.7,
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-  },
-  modalImage: {
-    width: '100%',
-    height: '80%',
-  },
-  modalTouchArea: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCloseButton: {
-    position: 'absolute',
-    top: 40,
-    right: 20,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCloseText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 20,
-  },
-});
