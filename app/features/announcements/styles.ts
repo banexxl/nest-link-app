@@ -1,0 +1,196 @@
+import { StyleSheet } from 'react-native';
+
+export const PRIMARY_COLOR = '#f68a00';
+
+export const styles = StyleSheet.create({
+  root: {
+    marginTop: 30,
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  headerRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222',
+  },
+  headerMeta: {
+    fontSize: 12,
+    color: '#ed9633ff',
+  },
+  card: {
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#fff',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#222',
+  },
+  cardMeta: {
+    fontSize: 12,
+    color: '#777',
+    marginTop: 2,
+  },
+  pill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(246,138,0,0.1)',
+    marginLeft: 8,
+  },
+  pillText: {
+    fontSize: 11,
+    color: PRIMARY_COLOR,
+    fontWeight: '600',
+  },
+  dateText: {
+    fontSize: 11,
+    color: '#999',
+    marginBottom: 6,
+  },
+  messageText: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 8,
+  },
+  imagesScroller: {
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  imageWrapper: {
+    marginRight: 8,
+  },
+  imageThumb: {
+    width: 96,
+    height: 72,
+    borderRadius: 10,
+    backgroundColor: '#ddd',
+  },
+  imagePlaceholder: {
+    width: 96,
+    height: 72,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#eee',
+  },
+  docsContainer: {
+    marginTop: 4,
+  },
+  docButton: {
+    marginTop: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    backgroundColor: '#f7f7fb',
+  },
+  docButtonText: {
+    fontSize: 13,
+    color: PRIMARY_COLOR,
+    fontWeight: '500',
+  },
+  errorText: {
+    color: '#d00',
+    fontSize: 13,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#555',
+    textAlign: 'center',
+  },
+  loadMoreButton: {
+    marginTop: 8,
+    marginBottom: 16,
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  loadMoreText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  retryButton: {
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  modalImage: {
+    width: '100%',
+    height: '80%',
+  },
+  modalTouchArea: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+});

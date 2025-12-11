@@ -3,9 +3,6 @@ import Loader from '@/components/loader';
 import { useAuth } from '@/context/auth-context';
 import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
 import { useThemeColor } from '@/hooks/use-theme-color';
-import { getBuildingIdFromUserId } from '@/lib/sb-tenant';
-import { signFileUrl } from '@/lib/sign-file';
-import { supabase } from '@/lib/supabase';
 import { Image as ExpoImage } from 'expo-image';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -14,61 +11,31 @@ import {
   FlatList,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-
-const PRIMARY_COLOR = '#f68a00';
-
-type TenantPostImage = {
-  id: string;
-  storage_bucket: string;
-  storage_path: string;
-};
-
-type TenantPostLike = {
-  id: string;
-  post_id: string;
-  tenant_id: string | null;
-  created_at: string;
-  emoji: string | null;
-};
-
-type TenantPostCommentLike = {
-  id: string;
-  comment_id: string;
-  tenant_id: string | null;
-  created_at: string;
-  emoji: string | null;
-};
-
-type TenantPostComment = {
-  id: string;
-  post_id: string;
-  tenant_id: string | null;
-  profile_id: string | null;
-  comment_text: string | null;
-  created_at: string;
-  client_id: string | null;
-  building_id: string | null;
-  likes?: TenantPostCommentLike[];
-};
-
-type TenantPost = {
-  id: string;
-  content_text: string | null;
-  created_at: string;
-  building_id: string | null;
-  is_archived: boolean;
-  profile_id: string | null;
-  tenant_id: string | null;
-  images?: TenantPostImage[];
-  likes?: TenantPostLike[];
-  comments?: TenantPostComment[];
-};
+import {
+  TenantPost,
+  TenantPostComment,
+  TenantPostCommentLike,
+  TenantPostImage,
+  TenantPostLike,
+  addCommentLike,
+  addPostComment,
+  addPostLike,
+  createTenantPost,
+  fetchTenantNamesByIds,
+  fetchTenantPosts,
+  prefetchPostImageUrls,
+  removeCommentLike,
+  removePostLike,
+  resolveChatBuilding,
+  resolveTenant,
+  resolveTenantAndProfile,
+} from './server-actions';
+import { PRIMARY_COLOR, styles } from './styles';
 
 export default function ChatScreen() {
   const primary = useThemeColor({}, 'primary', 'main');
@@ -111,15 +78,17 @@ export default function ChatScreen() {
       }
 
       try {
-        const result = await getBuildingIdFromUserId(supabase, userId);
-        if (!result.success || !result.data) {
-          setError(result.error ?? 'Unable to determine building for this tenant.');
+        const { buildingId: resolvedBuildingId, error: buildingError } =
+          await resolveChatBuilding(userId);
+
+        if (!resolvedBuildingId) {
+          setError(buildingError ?? 'Unable to determine building for this tenant.');
           setBuildingId(null);
           setLoading(false);
           return;
         }
 
-        setBuildingId(result.data.buildingId);
+        setBuildingId(resolvedBuildingId);
         setError(null);
       } catch (e: any) {
         setError(e?.message ?? 'Failed to resolve building for this tenant.');
@@ -140,18 +109,14 @@ export default function ChatScreen() {
       }
 
       try {
-        const { data, error } = await supabase
-          .from('tblTenants')
-          .select('id')
-          .eq('user_id', userId)
-          .single();
+        const { tenantId: resolvedTenantId } = await resolveTenant(userId);
 
-        if (error || !data) {
+        if (!resolvedTenantId) {
           setTenantId(null);
           return;
         }
 
-        setTenantId((data as any).id as string);
+        setTenantId(resolvedTenantId);
       } catch {
         setTenantId(null);
       }
@@ -178,60 +143,19 @@ export default function ChatScreen() {
       const to = from + PAGE_SIZE - 1;
 
       try {
-        const { data, error } = await supabase
-          .from('tblTenantPosts')
-          .select(
-            `
-          id,
-          content_text,
-          created_at,
-          building_id,
-          is_archived,
-          profile_id,
-          tenant_id,
-          images:tblTenantPostImages (
-            id,
-            storage_bucket,
-            storage_path
-          ),
-          likes:tblTenantPostLikes (
-            id,
-            post_id,
-            tenant_id,
-            created_at,
-            emoji
-          ),
-          comments:tblTenantPostComments (
-            id,
-            post_id,
-            tenant_id,
-            profile_id,
-            comment_text,
-            created_at,
-            client_id,
-            building_id,
-            likes:tblTenantPostCommentLikes (
-              id,
-              comment_id,
-              tenant_id,
-              created_at,
-              emoji
-            )
-          )
-        `
-          )
-          .eq('building_id', buildingId)
-          .eq('is_archived', false)
-          .order('created_at', { ascending: false })
-          .range(from, to);
+        const { posts: fetchedPosts, error: fetchError } = await fetchTenantPosts(
+          buildingId,
+          from,
+          to
+        );
 
-        if (error) {
+        if (fetchError) {
           if (reset) {
-            setError(error.message);
+            setError(fetchError);
             setPosts([]);
           }
         } else {
-          const newPosts = (data ?? []) as TenantPost[];
+          const newPosts = fetchedPosts;
           setHasMorePosts(newPosts.length === PAGE_SIZE);
 
           if (reset) {
@@ -277,36 +201,7 @@ export default function ChatScreen() {
   // Pre-sign all post images (can be optimized later if needed)
   useEffect(() => {
     const signAll = async () => {
-      const toSign: { key: string; bucket: string; path: string }[] = [];
-
-      posts.forEach((post) => {
-        (post.images ?? []).forEach((img) => {
-          if (!img.storage_bucket || !img.storage_path) return;
-          const key = `${img.storage_bucket}:${img.storage_path}`;
-          if (signedUrls[key]) return;
-          if (toSign.find((t) => t.key === key)) return;
-          toSign.push({
-            key,
-            bucket: img.storage_bucket,
-            path: img.storage_path,
-          });
-        });
-      });
-
-      if (!toSign.length) return;
-
-      const newMap: Record<string, string> = {};
-      for (const item of toSign) {
-        const url = await signFileUrl({
-          bucket: item.bucket,
-          path: item.path,
-          ttlSeconds: 60 * 20,
-        });
-        if (url) {
-          newMap[item.key] = url;
-        }
-      }
-
+      const newMap = await prefetchPostImageUrls(posts, signedUrls);
       if (Object.keys(newMap).length) {
         setSignedUrls((prev) => ({ ...prev, ...newMap }));
       }
@@ -332,99 +227,31 @@ export default function ChatScreen() {
 
     setPosting(true);
     try {
-      // Resolve tenant_id from tblTenants using user_id
-      const { data: tenantRow, error: tenantError } = await supabase
-        .from('tblTenants')
-        .select('id')
-        .eq('user_id', userId)
-        .single();
+      const { tenantId: resolvedTenantId, profileId, error } = await resolveTenantAndProfile(userId);
 
-      if (tenantError || !tenantRow) {
+      if (!resolvedTenantId || !profileId) {
         Alert.alert(
           'Post error',
-          tenantError?.message ?? 'Could not resolve tenant for this user.'
+          error ?? 'Could not resolve tenant profile for this user.'
         );
         return;
       }
-
-      const tenantId = (tenantRow as any).id as string;
-
-      // Resolve profile_id from tblTenantProfiles using tenant_id
-      const { data: profileRow, error: profileError } = await supabase
-        .from('tblTenantProfiles')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .single();
-
-      if (profileError || !profileRow) {
-        Alert.alert(
-          'Post error',
-          profileError?.message ?? 'Could not resolve tenant profile for this user.'
-        );
-        return;
-      }
-
-      const profileId = (profileRow as any).id as string;
 
       const payload = {
         content_text: text,
         building_id: buildingId,
         is_archived: false,
         profile_id: profileId,
-        tenant_id: tenantId,
+        tenant_id: resolvedTenantId,
       };
       console.log('payload', payload);
 
-      const { data, error } = await supabase
-        .from('tblTenantPosts')
-        .insert(payload)
-        .select(
-          `
-          id,
-          content_text,
-          created_at,
-          building_id,
-          is_archived,
-          profile_id,
-          tenant_id,
-          images:tblTenantPostImages (
-            id,
-            storage_bucket,
-            storage_path
-          ),
-          likes:tblTenantPostLikes (
-            id,
-            post_id,
-            tenant_id,
-            created_at,
-            emoji
-          ),
-          comments:tblTenantPostComments (
-            id,
-            post_id,
-            tenant_id,
-            profile_id,
-            comment_text,
-            created_at,
-            client_id,
-            building_id,
-            likes:tblTenantPostCommentLikes (
-              id,
-              comment_id,
-              tenant_id,
-              created_at,
-              emoji,
-              building_id
-            )
-          )
-        `
-        )
-        .single();
+      const { post, error: createError } = await createTenantPost(payload);
 
-      if (error) {
-        Alert.alert('Post error', error.message ?? 'Failed to create post.');
-      } else if (data) {
-        setPosts((prev) => [data as TenantPost, ...prev]);
+      if (createError || !post) {
+        Alert.alert('Post error', createError ?? 'Failed to create post.');
+      } else {
+        setPosts((prev) => [post, ...prev]);
         setComposerText('');
       }
     } catch (err: any) {
@@ -442,33 +269,23 @@ export default function ChatScreen() {
 
     setLikingPostIds((prev) => new Set(prev).add(post.id));
     try {
-      // Resolve tenant_id from tblTenants using user_id
-      const { data: tenantRow, error: tenantError } = await supabase
-        .from('tblTenants')
-        .select('id')
-        .eq('user_id', userId)
-        .single();
+      const { tenantId: resolvedTenantId, error } = await resolveTenant(userId);
 
-      if (tenantError || !tenantRow) {
+      if (!resolvedTenantId) {
         Alert.alert(
           'Like error',
-          tenantError?.message ?? 'Could not resolve tenant for this user.'
+          error ?? 'Could not resolve tenant for this user.'
         );
         return;
       }
 
-      const tenantId = (tenantRow as any).id as string;
-
-      const alreadyLiked = (post.likes ?? []).find((l) => l.tenant_id === tenantId);
+      const alreadyLiked = (post.likes ?? []).find((l) => l.tenant_id === resolvedTenantId);
 
       if (alreadyLiked) {
-        const { error } = await supabase
-          .from('tblTenantPostLikes')
-          .delete()
-          .eq('id', alreadyLiked.id);
+        const { error: removeError } = await removePostLike(alreadyLiked.id);
 
-        if (error) {
-          Alert.alert('Like error', error.message ?? 'Failed to remove like.');
+        if (removeError) {
+          Alert.alert('Like error', removeError ?? 'Failed to remove like.');
           return;
         }
 
@@ -476,27 +293,21 @@ export default function ChatScreen() {
           prev.map((p) =>
             p.id === post.id
               ? {
-                ...p,
-                likes: (p.likes ?? []).filter((l) => l.id !== alreadyLiked.id),
-              }
+                  ...p,
+                  likes: (p.likes ?? []).filter((l) => l.id !== alreadyLiked.id),
+                }
               : p
           )
         );
       } else {
-        const payload = {
+        const { like, error: insertError } = await addPostLike({
           post_id: post.id,
-          tenant_id: tenantId,
-          emoji: '👍' as string | null,
-        };
+          tenant_id: resolvedTenantId,
+          emoji: 'dY`?' as string | null,
+        });
 
-        const { data, error } = await supabase
-          .from('tblTenantPostLikes')
-          .insert(payload)
-          .select('id, post_id, tenant_id, created_at, emoji')
-          .single();
-
-        if (error) {
-          Alert.alert('Like error', error.message ?? 'Failed to like post.');
+        if (insertError || !like) {
+          Alert.alert('Like error', insertError ?? 'Failed to like post.');
           return;
         }
 
@@ -504,9 +315,9 @@ export default function ChatScreen() {
           prev.map((p) =>
             p.id === post.id
               ? {
-                ...p,
-                likes: [...(p.likes ?? []), (data as TenantPostLike)],
-              }
+                  ...p,
+                  likes: [...(p.likes ?? []), like],
+                }
               : p
           )
         );
@@ -521,7 +332,6 @@ export default function ChatScreen() {
       });
     }
   };
-
   const handleAddComment = async (post: TenantPost) => {
     const draft = (commentDrafts[post.id] ?? '').trim();
     if (!draft) return;
@@ -532,76 +342,27 @@ export default function ChatScreen() {
 
     setCommentingPostIds((prev) => new Set(prev).add(post.id));
     try {
-      // Resolve tenant_id from tblTenants using user_id
-      const { data: tenantRow, error: tenantError } = await supabase
-        .from('tblTenants')
-        .select('id')
-        .eq('user_id', userId)
-        .single();
+      const { tenantId: resolvedTenantId, profileId, error } = await resolveTenantAndProfile(userId);
 
-      if (tenantError || !tenantRow) {
+      if (!resolvedTenantId || !profileId) {
         Alert.alert(
           'Comment error',
-          tenantError?.message ?? 'Could not resolve tenant for this user.'
+          error ?? 'Could not resolve tenant profile for this user.'
         );
         return;
       }
 
-      const tenantId = (tenantRow as any).id as string;
-
-      // Resolve profile_id from tblTenantProfiles using tenant_id
-      const { data: profileRow, error: profileError } = await supabase
-        .from('tblTenantProfiles')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .single();
-
-      if (profileError || !profileRow) {
-        Alert.alert(
-          'Comment error',
-          profileError?.message ?? 'Could not resolve tenant profile for this user.'
-        );
-        return;
-      }
-
-      const profileId = (profileRow as any).id as string;
-
-      const payload = {
+      const { comment, error: insertError } = await addPostComment({
         post_id: post.id,
-        tenant_id: tenantId,
+        tenant_id: resolvedTenantId,
         profile_id: profileId,
         comment_text: draft,
         client_id: null as string | null,
         building_id: buildingId,
-      };
+      });
 
-      const { data, error } = await supabase
-        .from('tblTenantPostComments')
-        .insert(payload)
-        .select(
-          `
-          id,
-          post_id,
-          tenant_id,
-          profile_id,
-          comment_text,
-          created_at,
-          client_id,
-          building_id,
-          likes:tblTenantPostCommentLikes (
-            id,
-            comment_id,
-            tenant_id,
-            created_at,
-            emoji,
-            building_id
-          )
-        `
-        )
-        .single();
-
-      if (error) {
-        Alert.alert('Comment error', error.message ?? 'Failed to add comment.');
+      if (insertError || !comment) {
+        Alert.alert('Comment error', insertError ?? 'Failed to add comment.');
         return;
       }
 
@@ -609,9 +370,9 @@ export default function ChatScreen() {
         prev.map((p) =>
           p.id === post.id
             ? {
-              ...p,
-              comments: [...(p.comments ?? []), (data as TenantPostComment)],
-            }
+                ...p,
+                comments: [...(p.comments ?? []), comment],
+              }
             : p
         )
       );
@@ -627,7 +388,6 @@ export default function ChatScreen() {
       });
     }
   };
-
   const handleToggleCommentLike = async (postId: string, comment: TenantPostComment) => {
     if (!userId || !tenantId) {
       Alert.alert('Like error', 'Missing user or tenant information.');
@@ -639,13 +399,10 @@ export default function ChatScreen() {
     setLikingCommentIds((prev) => new Set(prev).add(comment.id));
     try {
       if (alreadyLiked) {
-        const { error } = await supabase
-          .from('tblTenantPostCommentLikes')
-          .delete()
-          .eq('id', alreadyLiked.id);
+        const { error } = await removeCommentLike(alreadyLiked.id);
 
         if (error) {
-          Alert.alert('Like error', error.message ?? 'Failed to remove comment like.');
+          Alert.alert('Like error', error ?? 'Failed to remove comment like.');
           return;
         }
 
@@ -653,34 +410,28 @@ export default function ChatScreen() {
           prev.map((p) =>
             p.id === postId
               ? {
-                ...p,
-                comments: (p.comments ?? []).map((c) =>
-                  c.id === comment.id
-                    ? {
-                      ...c,
-                      likes: (c.likes ?? []).filter((l) => l.id !== alreadyLiked.id),
-                    }
-                    : c
-                ),
-              }
+                  ...p,
+                  comments: (p.comments ?? []).map((c) =>
+                    c.id === comment.id
+                      ? {
+                          ...c,
+                          likes: (c.likes ?? []).filter((l) => l.id !== alreadyLiked.id),
+                        }
+                      : c
+                  ),
+                }
               : p
           )
         );
       } else {
-        const payload = {
+        const { like, error } = await addCommentLike({
           comment_id: comment.id,
           tenant_id: tenantId,
-          emoji: '👍' as string | null,
-        };
+          emoji: 'dY`?' as string | null,
+        });
 
-        const { data, error } = await supabase
-          .from('tblTenantPostCommentLikes')
-          .insert(payload)
-          .select('id, comment_id, tenant_id, created_at, emoji')
-          .single();
-
-        if (error) {
-          Alert.alert('Like error', error.message ?? 'Failed to like comment.');
+        if (error || !like) {
+          Alert.alert('Like error', error ?? 'Failed to like comment.');
           return;
         }
 
@@ -688,16 +439,16 @@ export default function ChatScreen() {
           prev.map((p) =>
             p.id === postId
               ? {
-                ...p,
-                comments: (p.comments ?? []).map((c) =>
-                  c.id === comment.id
-                    ? {
-                      ...c,
-                      likes: [...(c.likes ?? []), (data as TenantPostCommentLike)],
-                    }
-                    : c
-                ),
-              }
+                  ...p,
+                  comments: (p.comments ?? []).map((c) =>
+                    c.id === comment.id
+                      ? {
+                          ...c,
+                          likes: [...(c.likes ?? []), like],
+                        }
+                      : c
+                  ),
+                }
               : p
           )
         );
@@ -712,7 +463,6 @@ export default function ChatScreen() {
       });
     }
   };
-
   const openPostLikesModal = async (post: TenantPost) => {
     const likes = post.likes ?? [];
     if (!likes.length) return;
@@ -733,28 +483,8 @@ export default function ChatScreen() {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('tblTenants')
-        .select('id, first_name, last_name')
-        .in('id', tenantIds);
-
-      if (error || !data) {
-        const fallback = tenantIds;
-        setLikesModalItems(fallback);
-        setLikesModalVisible(true);
-        return;
-      }
-
-      const items = tenantIds.map((id) => {
-        const row = (data as any[]).find((t) => t.id === id) as
-          | { id: string; first_name?: string | null; last_name?: string | null }
-          | undefined;
-        const first = row?.first_name ?? '';
-        const last = row?.last_name ?? '';
-        const full = `${first} ${last}`.trim();
-        return full || 'Unknown tenant';
-      });
-
+      const { names } = await fetchTenantNamesByIds(tenantIds);
+      const items = names.length ? names : tenantIds;
       setLikesModalItems(items);
       setLikesModalVisible(true);
     } catch {
@@ -763,7 +493,6 @@ export default function ChatScreen() {
       setLikesModalVisible(true);
     }
   };
-
   const renderPostImages = (post: TenantPost) => {
     if (!post.images || post.images.length === 0) return null;
 
@@ -1076,293 +805,3 @@ export default function ChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  pageHeaderRow: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  pageHeaderTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#222',
-  },
-  pageHeaderMeta: {
-    fontSize: 12,
-    color: '#888',
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
-  },
-  errorText: {
-    color: '#d00',
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  emptyContainer: {
-    marginTop: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
-  },
-  composerCard: {
-    marginBottom: 12,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  composerTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 6,
-  },
-  composerInput: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    backgroundColor: '#fff',
-    minHeight: 70,
-    textAlignVertical: 'top',
-  },
-  composerButton: {
-    marginTop: 8,
-    alignSelf: 'flex-end',
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  composerButtonDisabled: {
-    opacity: 0.7,
-  },
-  composerButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  postCard: {
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  postMeta: {
-    fontSize: 11,
-    color: '#777',
-    marginBottom: 4,
-  },
-  postText: {
-    fontSize: 14,
-    color: '#222',
-  },
-  imageThumb: {
-    width: 120,
-    height: 90,
-    borderRadius: 10,
-    backgroundColor: '#ddd',
-  },
-  imagePlaceholder: {
-    width: 120,
-    height: 90,
-    borderRadius: 10,
-    backgroundColor: '#eee',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  postFooterRow: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  postCounts: {
-    fontSize: 12,
-    color: '#777',
-  },
-  postCountsInteractive: {
-    color: PRIMARY_COLOR,
-    fontWeight: '600',
-  },
-  postActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  postActionButton: {
-    marginLeft: 12,
-  },
-  postActionText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: PRIMARY_COLOR,
-  },
-  postActionTextActive: {
-    color: '#d9534f',
-  },
-  postActionTextSecondary: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#555',
-  },
-  commentsContainer: {
-    marginTop: 8,
-  },
-  commentsHeader: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#555',
-    marginBottom: 4,
-  },
-  commentRow: {
-    marginTop: 4,
-  },
-  commentText: {
-    fontSize: 13,
-    color: '#222',
-  },
-  commentMeta: {
-    fontSize: 11,
-    color: '#888',
-  },
-  commentFooterRow: {
-    marginTop: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  commentLikeButton: {
-    marginLeft: 12,
-  },
-  commentLikeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: PRIMARY_COLOR,
-  },
-  commentLikeTextActive: {
-    color: '#d9534f',
-  },
-  commentComposerRow: {
-    marginTop: 8,
-  },
-  commentInput: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    fontSize: 13,
-    backgroundColor: '#fff',
-    minHeight: 40,
-    textAlignVertical: 'top',
-  },
-  commentSendButton: {
-    marginTop: 6,
-    alignSelf: 'flex-end',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  commentSendText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  loadMoreCommentsButton: {
-    marginTop: 6,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  loadMoreCommentsText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#555',
-  },
-  likesModalOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  likesModalCard: {
-    width: '80%',
-    maxHeight: '60%',
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  likesModalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 8,
-  },
-  likesModalList: {
-    maxHeight: 260,
-    marginBottom: 10,
-  },
-  likesModalItem: {
-    fontSize: 14,
-    color: '#333',
-    paddingVertical: 4,
-  },
-  likesModalCloseButton: {
-    alignSelf: 'flex-end',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  likesModalCloseText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  loadMorePostsContainer: {
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  loadMorePostsButton: {
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  loadMorePostsText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-});

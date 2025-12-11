@@ -1,7 +1,5 @@
 // app/main/profile.tsx  (or wherever you keep authenticated screens)
 import { useAuth } from '@/context/auth-context';
-import { getTenantAddressFromTenantId, type TenantAddressInfo } from '@/lib/sb-tenant';
-import { supabase } from '@/lib/supabase';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,14 +7,18 @@ import {
   ImageBackground,
   Modal,
   ScrollView,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
   type ImageSourcePropType,
 } from 'react-native';
-
-const PRIMARY_COLOR = '#f68a00';
+import {
+  TenantAddressInfo,
+  fetchTenantAddress,
+  loadAvatarData,
+  updateAvatarData,
+} from './server-actions';
+import { PRIMARY_COLOR, styles } from './styles';
 
 type AvatarOption = {
   id: string;
@@ -170,42 +172,17 @@ const ProfileScreen: React.FC = () => {
     setAvatarError(null);
 
     try {
-      const userId = session?.user?.id ?? null;
-      const tenantFilterColumn = tenantId ? 'id' : 'user_id';
-      const tenantFilterValue = tenantId ?? userId;
+      const { avatarUrl: nextAvatarUrl, resolvedTenantId: nextTenantId, error } =
+        await loadAvatarData({
+          sessionUserId: session?.user?.id ?? null,
+          tenantId,
+        });
 
-      if (!tenantFilterValue) return;
-
-      const { data: tenant, error: tenantError } = await supabase
-        .from('tblTenants')
-        .select('id, avatar_url')
-        .eq(tenantFilterColumn, tenantFilterValue)
-        .maybeSingle();
-
-      if (tenantError && tenantError.code !== 'PGRST116') {
-        setAvatarError(tenantError.message);
-        return;
+      if (error) {
+        setAvatarError(error);
       }
 
-      const tenantRowId = tenantId ?? (tenant?.id as string | undefined) ?? null;
-      setResolvedTenantId(tenantRowId);
-
-      let nextAvatarUrl = (tenant?.avatar_url as string | null | undefined) ?? null;
-
-      if (tenantRowId) {
-        const { data: profile, error: profileError } = await supabase
-          .from('tblTenantProfiles')
-          .select('avatar_url')
-          .eq('tenant_id', tenantRowId)
-          .maybeSingle();
-
-        if (!profileError && profile?.avatar_url) {
-          nextAvatarUrl = profile.avatar_url as string;
-        } else if (profileError && profileError.code !== 'PGRST116') {
-          setAvatarError(profileError.message);
-        }
-      }
-
+      setResolvedTenantId(nextTenantId);
       setAvatarUrl(nextAvatarUrl);
     } catch (error: any) {
       setAvatarError(error?.message ?? 'Failed to load avatar.');
@@ -225,13 +202,13 @@ const ProfileScreen: React.FC = () => {
       setAddressLoading(true);
       setAddressError(null);
 
-      const result = await getTenantAddressFromTenantId(supabase, tenantId);
+      const { address, error } = await fetchTenantAddress(tenantId);
 
-      if (!result.success || !result.data) {
-        setAddressError(result.error ?? 'Failed to load tenant address.');
+      if (error) {
+        setAddressError(error);
         setTenantAddress(null);
       } else {
-        setTenantAddress(result.data);
+        setTenantAddress(address);
       }
 
       setAddressLoading(false);
@@ -250,47 +227,25 @@ const ProfileScreen: React.FC = () => {
       return;
     }
 
-    const targetTenantId = resolvedTenantId ?? tenantId ?? null;
-    const tenantFilterColumn = targetTenantId ? 'id' : 'user_id';
-    const tenantFilterValue = targetTenantId ?? session?.user?.id;
     const valueForDb = buildAvatarUrl(option.id);
-
-    if (!tenantFilterValue) {
-      setAvatarError('Missing tenant information for avatar update.');
-      return;
-    }
 
     setAvatarSaving(true);
     setAvatarError(null);
 
     try {
-      const { error: tenantUpdateError } = await supabase
-        .from('tblTenants')
-        .update({ avatar_url: valueForDb })
-        .eq(tenantFilterColumn, tenantFilterValue);
-
-      if (tenantUpdateError) {
-        setAvatarError(tenantUpdateError.message);
-        return;
-      }
-
-      let profileErrorMessage: string | null = null;
-      if (targetTenantId) {
-        const { error: profileUpdateError } = await supabase
-          .from('tblTenantProfiles')
-          .update({ avatar_url: valueForDb })
-          .eq('tenant_id', targetTenantId);
-
-        if (profileUpdateError) {
-          profileErrorMessage = profileUpdateError.message;
-        }
-      }
+      const { error, resolvedTenantId: nextResolvedTenantId } = await updateAvatarData({
+        sessionUserId: session?.user?.id ?? null,
+        tenantId,
+        resolvedTenantId,
+        avatarPath: valueForDb,
+      });
 
       setAvatarUrl(valueForDb);
+      setResolvedTenantId((prev) => prev ?? nextResolvedTenantId ?? null);
       setAvatarPickerVisible(false);
 
-      if (profileErrorMessage) {
-        setAvatarError(profileErrorMessage);
+      if (error) {
+        setAvatarError(error);
       }
     } catch (error: any) {
       setAvatarError(error?.message ?? 'Failed to update avatar.');
@@ -479,233 +434,3 @@ const ProfileScreen: React.FC = () => {
 };
 
 export default ProfileScreen;
-
-const styles = StyleSheet.create({
-  root: {
-    marginTop: 30,
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  background: {
-    flex: 1,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.25)',
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-  },
-  topCard: {
-    borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 18,
-    elevation: 5,
-  },
-  avatarButton: {
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: PRIMARY_COLOR,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 40,
-  },
-  avatarText: {
-    color: '#fff',
-    fontSize: 30,
-    fontWeight: '700',
-  },
-  editAvatarLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: PRIMARY_COLOR,
-  },
-  name: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 2,
-  },
-  email: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 14,
-  },
-  tagsRow: {
-    flexDirection: 'row',
-    columnGap: 10,
-  },
-  tag: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    backgroundColor: '#f7f7fb',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
-    minWidth: 120,
-  },
-  tagLabel: {
-    fontSize: 11,
-    color: '#888',
-    marginBottom: 2,
-  },
-  tagValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
-  },
-  detailsCard: {
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 10,
-    color: '#222',
-  },
-  detailRow: {
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: '#777',
-    marginBottom: 2,
-  },
-  detailValue: {
-    fontSize: 14,
-    color: '#333',
-  },
-  actionsCard: {
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    marginBottom: 20,
-  },
-  primaryButton: {
-    borderRadius: 18,
-    paddingVertical: 11,
-    alignItems: 'center',
-    backgroundColor: PRIMARY_COLOR,
-    marginBottom: 10,
-  },
-  primaryButtonLabel: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    borderRadius: 18,
-    paddingVertical: 11,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d9534f',
-    backgroundColor: 'rgba(217,83,79,0.06)',
-  },
-  secondaryButtonLabel: {
-    color: '#d9534f',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 380,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fff',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#222',
-  },
-  closeButton: {
-    fontSize: 18,
-    color: '#444',
-    fontWeight: '700',
-  },
-  avatarGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  avatarChoice: {
-    width: '48%',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
-    backgroundColor: '#f7f7fb',
-    marginBottom: 12,
-  },
-  avatarChoiceSelected: {
-    borderColor: PRIMARY_COLOR,
-    backgroundColor: 'rgba(246,138,0,0.08)',
-  },
-  avatarChoiceImage: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    marginBottom: 6,
-  },
-  avatarChoiceLabel: {
-    fontSize: 12,
-    color: '#333',
-    textAlign: 'center',
-  },
-  avatarSelectedTag: {
-    marginTop: 4,
-    fontSize: 11,
-    fontWeight: '700',
-    color: PRIMARY_COLOR,
-  },
-  avatarSavingSpinner: {
-    marginTop: 10,
-  },
-  avatarError: {
-    marginTop: 6,
-    fontSize: 12,
-    color: '#d00',
-    textAlign: 'center',
-  },
-});

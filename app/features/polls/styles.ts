@@ -1,0 +1,301 @@
+import { StyleSheet } from 'react-native';
+
+export const PRIMARY_COLOR = '#f68a00';
+
+export const styles = StyleSheet.create({
+  root: {
+    marginTop: 30,
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  headerRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222',
+  },
+  headerMeta: {
+    fontSize: 12,
+    color: '#ed9633ff',
+  },
+  errorText: {
+    color: 'rgba(247, 61, 61, 1)',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 6,
+    color: '#222',
+  },
+  pollListCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  pollCard: {
+    width: 220,
+    borderRadius: 14,
+    backgroundColor: '#f9d6a1ff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginRight: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  pollCardSelected: {
+    borderWidth: 1,
+    borderColor: PRIMARY_COLOR,
+  },
+  pollCardEnded: {
+    opacity: 0.6,
+  },
+  pollTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#222',
+    marginBottom: 2,
+  },
+  pollDescription: {
+    fontSize: 12,
+    color: '#555',
+    marginBottom: 4,
+  },
+  pollMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pollMetaText: {
+    fontSize: 11,
+    color: '#777',
+  },
+  pollEndedLabel: {
+    fontSize: 11,
+    color: '#d00',
+    fontWeight: '600',
+  },
+  detailsCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 16,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  detailsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#222',
+    marginBottom: 4,
+  },
+  detailsClosedLabel: {
+    fontSize: 12,
+    color: '#d00',
+    marginBottom: 6,
+  },
+  detailsDescription: {
+    fontSize: 13,
+    color: '#444',
+    marginBottom: 10,
+  },
+  attachmentsSection: {
+    marginBottom: 12,
+  },
+  attachmentsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 6,
+    color: '#222',
+  },
+  attachmentButton: {
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#f7f7fb',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    marginBottom: 6,
+  },
+  attachmentButtonText: {
+    fontSize: 13,
+    color: PRIMARY_COLOR,
+    fontWeight: '500',
+  },
+  optionsSection: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  optionsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 6,
+    color: '#222',
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  radioOuter: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  radioOuterSelected: {
+    borderColor: PRIMARY_COLOR,
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  optionLabel: {
+    fontSize: 13,
+    color: '#333',
+  },
+  abstainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  checkboxOuter: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  checkboxOuterSelected: {
+    borderColor: PRIMARY_COLOR,
+  },
+  checkboxInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  abstainLabel: {
+    fontSize: 13,
+    color: '#333',
+  },
+  voteButton: {
+    marginTop: 6,
+    borderRadius: 18,
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: PRIMARY_COLOR,
+  },
+  voteButtonDisabled: {
+    opacity: 0.7,
+  },
+  voteButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  voteMessage: {
+    marginTop: 4,
+    fontSize: 12,
+  },
+  voteMessageSuccess: {
+    color: '#0a7a0a',
+  },
+  voteMessageError: {
+    color: '#d00',
+  },
+  resultsSection: {
+    marginTop: 12,
+  },
+  resultsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#222',
+    marginBottom: 8,
+  },
+  resultsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  resultsBarContainer: {
+    width: 150,
+    height: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  resultsBarSegment: {
+    height: '100%',
+  },
+  resultsLegend: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  legendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  legendLabel: {
+    fontSize: 12,
+    color: '#333',
+    flexShrink: 1,
+  },
+  resultsTotal: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#555',
+  },
+});

@@ -2,9 +2,6 @@
 import BackgroundScreen from '@/components/layouts/background-screen';
 import { useAuth } from '@/context/auth-context';
 import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
-import { getBuildingIdFromUserId } from '@/lib/sb-tenant';
-import { signFileUrl } from '@/lib/sign-file';
-import { supabase } from '@/lib/supabase';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,48 +9,24 @@ import {
   Linking,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { PieChart } from 'react-native-gifted-charts';
-
-const PRIMARY_COLOR = '#f68a00';
-
-type PollAttachment = {
-  id: string;
-  storage_bucket: string;
-  storage_path: string;
-};
-
-type Poll = {
-  id: string;
-  client_id: string | null;
-  building_id: string | null;
-  type: string;
-  title: string;
-  description: string | null;
-  max_choices: number | null;
-  allow_change_until_deadline: boolean;
-  allow_abstain: boolean;
-  status: string;
-  starts_at: string | null;
-  ends_at: string | null;
-  poll_options?: {
-    id: string;
-    label: string;
-    sort_order: number;
-  }[];
-  attachments?: PollAttachment[];
-};
-
-type PollVote = {
-  id: string;
-  choice_option_ids: string[] | null;
-  abstain: boolean;
-};
+import { PRIMARY_COLOR, styles } from './styles';
+import {
+  Poll,
+  PollAttachment,
+  PollVote,
+  fetchExistingPollVote,
+  fetchPollVotes,
+  fetchPollsForBuilding,
+  resolvePollBuilding,
+  signPollAttachment,
+  submitPollVote,
+} from './server-actions';
 
 type PollResults = {
   options: {
@@ -106,47 +79,16 @@ const PollsScreen: React.FC = () => {
       if (showLoading) setLoading(true);
       setError(null);
       try {
-        const { data, error } = await supabase
-          .from('tblPolls')
-          .select(
-            `
-            id,
-            client_id,
-            building_id,
-            type,
-            title,
-            description,
-            max_choices,
-            allow_change_until_deadline,
-            allow_abstain,
-            status,
-            starts_at,
-            ends_at,
-            poll_options:tblPollOptions (
-              id,
-              label,
-              sort_order
-            ),
-            attachments:tblPollAttachments (
-              id,
-              storage_bucket,
-              storage_path
-            )
-          `
-          )
-          // Load both active and closed polls for this building
-          .in('status', ['active', 'closed'])
-          .eq('building_id', buildingId)
-          .order('starts_at', { ascending: true });
+        const { polls: fetchedPolls, error: fetchError } =
+          await fetchPollsForBuilding(buildingId);
 
-        if (error) {
-          setError(error.message);
+        if (fetchError) {
+          setError(fetchError);
           setPolls([]);
         } else {
-          const result = (data ?? []) as Poll[];
-          setPolls(result);
-          if (!selectedPollId && result.length > 0) {
-            setSelectedPollId(result[0].id);
+          setPolls(fetchedPolls);
+          if (!selectedPollId && fetchedPolls.length > 0) {
+            setSelectedPollId(fetchedPolls[0].id);
           }
         }
       } catch (err: any) {
@@ -176,15 +118,17 @@ const PollsScreen: React.FC = () => {
       }
 
       try {
-        const result = await getBuildingIdFromUserId(supabase, authUserId);
-        if (!result.success || !result.data) {
-          setError(result.error ?? 'Unable to determine building for this tenant.');
+        const { buildingId: resolvedBuildingId, error: buildingError } =
+          await resolvePollBuilding(authUserId);
+
+        if (!resolvedBuildingId) {
+          setError(buildingError ?? 'Unable to determine building for this tenant.');
           setBuildingId(null);
           setLoading(false);
           return;
         }
 
-        setBuildingId(result.data.buildingId);
+        setBuildingId(resolvedBuildingId);
         setError(null);
       } catch (e: any) {
         setError(e?.message ?? 'Failed to resolve building for this tenant.');
@@ -212,20 +156,13 @@ const PollsScreen: React.FC = () => {
       }
 
       try {
-        const { data, error } = await supabase
-          .from('tblPollVotes')
-          .select('id, choice_option_ids, abstain')
-          .eq('poll_id', selectedPoll.id)
-          .eq('tenant_id', tenantPk)
-          .maybeSingle();
+        const { vote, error } = await fetchExistingPollVote(selectedPoll.id, tenantPk);
 
-        if (error && error.code !== 'PGRST116') {
-          // ignore "no rows" error
+        if (error) {
           console.log('Error loading existing vote:', error);
         }
 
-        if (data) {
-          const vote = data as PollVote;
+        if (vote) {
           setExistingVote(vote);
           // For single-choice UI, take the first selected id if present
           setSelectedOptionId(vote.choice_option_ids?.[0] ?? null);
@@ -267,18 +204,13 @@ const PollsScreen: React.FC = () => {
       try {
         setResultsLoading(true);
 
-        const { data, error } = await supabase
-          .from('tblPollVotes')
-          .select('choice_option_ids, abstain')
-          .eq('poll_id', selectedPoll.id);
+        const { votes, error } = await fetchPollVotes(selectedPoll.id);
 
         if (error) {
           console.log('Error loading poll results:', error);
           setPollResults(null);
           return;
         }
-
-        const votes = (data ?? []) as { choice_option_ids: string[] | null; abstain: boolean }[];
 
         if (!votes.length || !selectedPoll.poll_options || !selectedPoll.poll_options.length) {
           setPollResults(null);
@@ -390,12 +322,7 @@ const PollsScreen: React.FC = () => {
   };
 
   const handleOpenAttachment = async (att: PollAttachment) => {
-    if (!att.storage_bucket || !att.storage_path) return;
-    const url = await signFileUrl({
-      bucket: att.storage_bucket,
-      path: att.storage_path,
-      ttlSeconds: 60 * 20,
-    });
+    const url = await signPollAttachment(att);
     if (!url) return;
 
     Linking.openURL(url).catch((err) =>
@@ -435,23 +362,10 @@ const PollsScreen: React.FC = () => {
         abstain,
       };
 
-      let error = null;
-
-      if (existingVote) {
-        const { error: updateError } = await supabase
-          .from('tblPollVotes')
-          .update(payload)
-          .eq('id', existingVote.id);
-        error = updateError;
-      } else {
-        const { error: insertError } = await supabase
-          .from('tblPollVotes')
-          .insert(payload);
-        error = insertError;
-      }
+      const { error } = await submitPollVote(payload, existingVote?.id ?? null);
 
       if (error) {
-        setVoteMessage(error.message ?? 'Failed to submit vote.');
+        setVoteMessage(error ?? 'Failed to submit vote.');
       } else {
         setVoteMessage('Your vote has been recorded.');
         // reload local state to reflect latest vote
@@ -787,301 +701,3 @@ const PollsScreen: React.FC = () => {
 };
 
 export default PollsScreen;
-
-const styles = StyleSheet.create({
-  root: {
-    marginTop: 30,
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  headerRow: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#222',
-  },
-  headerMeta: {
-    fontSize: 12,
-    color: '#ed9633ff',
-  },
-  errorText: {
-    color: 'rgba(247, 61, 61, 1)',
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 6,
-    color: '#222',
-  },
-  pollListCard: {
-    marginHorizontal: 16,
-    marginTop: 10,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.96)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  pollCard: {
-    width: 220,
-    borderRadius: 14,
-    backgroundColor: '#f9d6a1ff',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginRight: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  pollCardSelected: {
-    borderWidth: 1,
-    borderColor: PRIMARY_COLOR,
-  },
-  pollCardEnded: {
-    opacity: 0.6,
-  },
-  pollTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#222',
-    marginBottom: 2,
-  },
-  pollDescription: {
-    fontSize: 12,
-    color: '#555',
-    marginBottom: 4,
-  },
-  pollMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  pollMetaText: {
-    fontSize: 11,
-    color: '#777',
-  },
-  pollEndedLabel: {
-    fontSize: 11,
-    color: '#d00',
-    fontWeight: '600',
-  },
-  detailsCard: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 16,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  detailsTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 4,
-  },
-  detailsClosedLabel: {
-    fontSize: 12,
-    color: '#d00',
-    marginBottom: 6,
-  },
-  detailsDescription: {
-    fontSize: 13,
-    color: '#444',
-    marginBottom: 10,
-  },
-  attachmentsSection: {
-    marginBottom: 12,
-  },
-  attachmentsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 6,
-    color: '#222',
-  },
-  attachmentButton: {
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#f7f7fb',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
-    marginBottom: 6,
-  },
-  attachmentButtonText: {
-    fontSize: 13,
-    color: PRIMARY_COLOR,
-    fontWeight: '500',
-  },
-  optionsSection: {
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  optionsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 6,
-    color: '#222',
-  },
-  optionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  radioOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: 'rgba(0,0,0,0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  radioOuterSelected: {
-    borderColor: PRIMARY_COLOR,
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  optionLabel: {
-    fontSize: 13,
-    color: '#333',
-  },
-  abstainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 10,
-  },
-  checkboxOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: 'rgba(0,0,0,0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  checkboxOuterSelected: {
-    borderColor: PRIMARY_COLOR,
-  },
-  checkboxInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 2,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  abstainLabel: {
-    fontSize: 13,
-    color: '#333',
-  },
-  voteButton: {
-    marginTop: 6,
-    borderRadius: 18,
-    paddingVertical: 11,
-    alignItems: 'center',
-    backgroundColor: PRIMARY_COLOR,
-  },
-  voteButtonDisabled: {
-    opacity: 0.7,
-  },
-  voteButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  voteMessage: {
-    marginTop: 4,
-    fontSize: 12,
-  },
-  voteMessageSuccess: {
-    color: '#0a7a0a',
-  },
-  voteMessageError: {
-    color: '#d00',
-  },
-  resultsSection: {
-    marginTop: 12,
-  },
-  resultsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#222',
-    marginBottom: 8,
-  },
-  resultsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  resultsBarContainer: {
-    width: 150,
-    height: 150,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  resultsBarSegment: {
-    height: '100%',
-  },
-  resultsLegend: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 6,
-  },
-  legendLabel: {
-    fontSize: 12,
-    color: '#333',
-    flexShrink: 1,
-  },
-  resultsTotal: {
-    marginTop: 6,
-    fontSize: 12,
-    color: '#555',
-  },
-});

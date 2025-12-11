@@ -1,0 +1,233 @@
+import { StyleSheet } from 'react-native';
+
+export const PRIMARY_COLOR = '#f68a00';
+
+export const styles = StyleSheet.create({
+  root: {
+    marginTop: 30,
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  background: {
+    flex: 1,
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  topCard: {
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 18,
+    elevation: 5,
+  },
+  avatarButton: {
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  avatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: PRIMARY_COLOR,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 40,
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 30,
+    fontWeight: '700',
+  },
+  editAvatarLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: PRIMARY_COLOR,
+  },
+  name: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222',
+    marginBottom: 2,
+  },
+  email: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 14,
+  },
+  tagsRow: {
+    flexDirection: 'row',
+    columnGap: 10,
+  },
+  tag: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#f7f7fb',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    minWidth: 120,
+  },
+  tagLabel: {
+    fontSize: 11,
+    color: '#888',
+    marginBottom: 2,
+  },
+  tagValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+  },
+  detailsCard: {
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 10,
+    color: '#222',
+  },
+  detailRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: '#777',
+    marginBottom: 2,
+  },
+  detailValue: {
+    fontSize: 14,
+    color: '#333',
+  },
+  actionsCard: {
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    marginBottom: 20,
+  },
+  primaryButton: {
+    borderRadius: 18,
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: PRIMARY_COLOR,
+    marginBottom: 10,
+  },
+  primaryButtonLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    borderRadius: 18,
+    paddingVertical: 11,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#d9534f',
+    backgroundColor: 'rgba(217,83,79,0.06)',
+  },
+  secondaryButtonLabel: {
+    color: '#d9534f',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#fff',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#222',
+  },
+  closeButton: {
+    fontSize: 18,
+    color: '#444',
+    fontWeight: '700',
+  },
+  avatarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  avatarChoice: {
+    width: '48%',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    backgroundColor: '#f7f7fb',
+    marginBottom: 12,
+  },
+  avatarChoiceSelected: {
+    borderColor: PRIMARY_COLOR,
+    backgroundColor: 'rgba(246,138,0,0.08)',
+  },
+  avatarChoiceImage: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    marginBottom: 6,
+  },
+  avatarChoiceLabel: {
+    fontSize: 12,
+    color: '#333',
+    textAlign: 'center',
+  },
+  avatarSelectedTag: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '700',
+    color: PRIMARY_COLOR,
+  },
+  avatarSavingSpinner: {
+    marginTop: 10,
+  },
+  avatarError: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#d00',
+    textAlign: 'center',
+  },
+});

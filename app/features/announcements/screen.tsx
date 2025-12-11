@@ -3,9 +3,6 @@ import BackgroundScreen from '@/components/layouts/background-screen';
 import Loader from '@/components/loader';
 import { useAuth } from '@/context/auth-context';
 import { useTabBarScroll } from '@/hooks/use-tab-bar-scroll';
-import { getBuildingIdFromUserId } from '@/lib/sb-tenant';
-import { signFileUrl } from '@/lib/sign-file';
-import { supabase } from '@/lib/supabase';
 import { Image as ExpoImage } from 'expo-image';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -15,35 +12,21 @@ import {
   Modal,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
   useWindowDimensions,
 } from 'react-native';
 import RenderHTML from 'react-native-render-html';
-
-const PRIMARY_COLOR = '#f68a00';
-
-type StorageRef = {
-  id: string;
-  storage_bucket: string;
-  storage_path: string;
-};
-
-type Announcement = {
-  id: string;
-  title: string;
-  message: string;
-  category: string | null;
-  subcategory: string | null;
-  pinned: boolean;
-  archived: boolean;
-  status: string;
-  created_at: string;
-  images?: StorageRef[]; // tblAnnouncementImages
-  docs?: StorageRef[];   // tblAnnouncementDocs
-};
+import { styles } from './styles';
+import {
+  Announcement,
+  StorageRef,
+  fetchAnnouncementsForBuilding,
+  prefetchAnnouncementSignedUrls,
+  resolveAnnouncementBuilding,
+  signAnnouncementRef,
+} from './server-actions';
 
 const AnnouncementsScreen: React.FC = () => {
   const { session } = useAuth();
@@ -73,15 +56,17 @@ const AnnouncementsScreen: React.FC = () => {
       }
 
       try {
-        const result = await getBuildingIdFromUserId(supabase, userId);
-        if (!result.success || !result.data) {
-          setError(result.error ?? 'Unable to determine building for this tenant.');
+        const { buildingId: resolvedBuildingId, error: buildingError } =
+          await resolveAnnouncementBuilding(userId);
+
+        if (!resolvedBuildingId) {
+          setError(buildingError ?? 'Unable to determine building for this tenant.');
           setBuildingId(null);
           setLoading(false);
           return;
         }
 
-        setBuildingId(result.data.buildingId);
+        setBuildingId(resolvedBuildingId);
         setError(null);
       } catch (e: any) {
         setError(e?.message ?? 'Failed to resolve building for this tenant.');
@@ -99,62 +84,14 @@ const AnnouncementsScreen: React.FC = () => {
     setError(null);
     setLoading(true);
     try {
-      // 1) Find announcement_ids linked to this building via the junction table
-      const { data: linkRows, error: linkError } = await supabase
-        .from('tblBuildings_Announcements')
-        .select('announcement_id')
-        .eq('building_id', buildingId);
+      const { announcements: fetchedAnnouncements, error: fetchError } =
+        await fetchAnnouncementsForBuilding(buildingId);
 
-      if (linkError) {
-        setError(linkError.message);
-        setAnnouncements([]);
-        return;
-      }
-
-      const ids = (linkRows ?? [])
-        .map((row: any) => row.announcement_id as string | null)
-        .filter((id): id is string => !!id);
-
-      if (!ids.length) {
-        setAnnouncements([]);
-        setVisibleCount(10);
-        return;
-      }
-
-      // 2) Load only those announcements
-      const { data, error } = await supabase
-        .from('tblAnnouncements')
-        .select(`
-          id,
-          title,
-          message,
-          category,
-          subcategory,
-          pinned,
-          archived,
-          status,
-          created_at,
-          images:tblAnnouncementImages (
-            id,
-            storage_bucket,
-            storage_path
-          ),
-          docs:tblAnnouncementDocuments (
-            id,
-            storage_bucket,
-            storage_path
-          )
-        `)
-        .in('id', ids)
-        .eq('archived', false)
-        .order('pinned', { ascending: false })
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        setError(error.message);
+      if (fetchError) {
+        setError(fetchError);
         setAnnouncements([]);
       } else {
-        setAnnouncements((data ?? []) as Announcement[]);
+        setAnnouncements(fetchedAnnouncements);
         setVisibleCount(10);
       }
     } catch (err: any) {
@@ -174,37 +111,7 @@ const AnnouncementsScreen: React.FC = () => {
   // After announcements load/change, pre-sign all unique storage refs
   useEffect(() => {
     const signAll = async () => {
-      const toSign: { key: string; bucket: string; path: string }[] = [];
-
-      announcements.forEach((a) => {
-        const allRefs = [...(a.images ?? []), ...(a.docs ?? [])];
-        allRefs.forEach((ref) => {
-          if (!ref.storage_bucket || !ref.storage_path) return;
-          const key = `${ref.storage_bucket}:${ref.storage_path}`;
-          if (signedUrls[key]) return;
-          if (toSign.find((t) => t.key === key)) return;
-          toSign.push({
-            key,
-            bucket: ref.storage_bucket,
-            path: ref.storage_path,
-          });
-        });
-      });
-
-      if (!toSign.length) return;
-
-      const newMap: Record<string, string> = {};
-
-      for (const item of toSign) {
-        const url = await signFileUrl({
-          bucket: item.bucket,
-          path: item.path,
-        }, true);
-        if (url) {
-          newMap[item.key] = url;
-        }
-      }
-
+      const newMap = await prefetchAnnouncementSignedUrls(announcements, signedUrls);
       if (Object.keys(newMap).length) {
         setSignedUrls((prev) => ({ ...prev, ...newMap }));
       }
@@ -214,8 +121,7 @@ const AnnouncementsScreen: React.FC = () => {
     if (announcements.length > 0) {
       signAll();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [announcements]);
+  }, [announcements, signedUrls]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -246,11 +152,7 @@ const AnnouncementsScreen: React.FC = () => {
         bucket: ref.storage_bucket,
         path: ref.storage_path,
       });
-      url = await signFileUrl({
-        bucket: ref.storage_bucket,
-        path: ref.storage_path,
-        ttlSeconds: 60 * 20,
-      });
+      url = await signAnnouncementRef(ref, 60 * 20);
 
       if (!url) {
         console.error('Failed to sign announcement image URL', { key });
@@ -271,10 +173,7 @@ const AnnouncementsScreen: React.FC = () => {
     let url: string | null = signedUrls[key] ?? null;
 
     if (!url) {
-      url = await signFileUrl({
-        bucket: ref.storage_bucket,
-        path: ref.storage_path,
-      });
+      url = await signAnnouncementRef(ref);
 
       if (!url) return; // stop if signing failed
       const nonNullUrl: string = url;
@@ -476,196 +375,3 @@ const AnnouncementsScreen: React.FC = () => {
 };
 
 export default AnnouncementsScreen;
-
-const styles = StyleSheet.create({
-  root: {
-    marginTop: 30,
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerRow: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#222',
-  },
-  headerMeta: {
-    fontSize: 12,
-    color: '#ed9633ff',
-  },
-  card: {
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fff',
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#222',
-  },
-  cardMeta: {
-    fontSize: 12,
-    color: '#777',
-    marginTop: 2,
-  },
-  pill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(246,138,0,0.1)',
-    marginLeft: 8,
-  },
-  pillText: {
-    fontSize: 11,
-    color: PRIMARY_COLOR,
-    fontWeight: '600',
-  },
-  dateText: {
-    fontSize: 11,
-    color: '#999',
-    marginBottom: 6,
-  },
-  messageText: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 8,
-  },
-  imagesScroller: {
-    marginTop: 4,
-    marginBottom: 6,
-  },
-  imageWrapper: {
-    marginRight: 8,
-  },
-  imageThumb: {
-    width: 96,
-    height: 72,
-    borderRadius: 10,
-    backgroundColor: '#ddd',
-  },
-  imagePlaceholder: {
-    width: 96,
-    height: 72,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#eee',
-  },
-  docsContainer: {
-    marginTop: 4,
-  },
-  docButton: {
-    marginTop: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
-    backgroundColor: '#f7f7fb',
-  },
-  docButtonText: {
-    fontSize: 13,
-    color: PRIMARY_COLOR,
-    fontWeight: '500',
-  },
-  errorText: {
-    color: '#d00',
-    fontSize: 13,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#555',
-    textAlign: 'center',
-  },
-  loadMoreButton: {
-    marginTop: 8,
-    marginBottom: 16,
-    alignSelf: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  loadMoreText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  retryButton: {
-    marginTop: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
-    backgroundColor: PRIMARY_COLOR,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-  },
-  modalImage: {
-    width: '100%',
-    height: '80%',
-  },
-  modalTouchArea: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCloseButton: {
-    position: 'absolute',
-    top: 40,
-    right: 20,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCloseText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 20,
-  },
-});
