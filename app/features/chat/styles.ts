@@ -110,20 +110,6 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     color: '#222',
   },
-  imageThumb: {
-    width: 120,
-    height: 90,
-    borderRadius: 10,
-    backgroundColor: '#ddd',
-  },
-  imagePlaceholder: {
-    width: 120,
-    height: 90,
-    borderRadius: 10,
-    backgroundColor: '#eee',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   postFooterRow: {
     marginTop: 8,
     flexDirection: 'row',
@@ -290,5 +276,256 @@ export const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontWeight: '600',
+  },
+
+  liCard: {
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 1,
+  },
+
+  liHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  liAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  liAvatarText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#111827',
+  },
+
+  liHeaderMeta: {
+    flex: 1,
+    marginLeft: 10,
+    minWidth: 0,
+  },
+  liAuthorName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  liSubMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  liSubMetaText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  liDot: {
+    marginHorizontal: 6,
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  liHeaderMenu: {
+    paddingLeft: 10,
+    paddingVertical: 6,
+  },
+  liMenuDots: {
+    fontSize: 18,
+    color: '#6B7280',
+    fontWeight: '700',
+  },
+
+  liPostText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#111827',
+  },
+  liSeeMore: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+
+  // Media: make it feel more like LI (bigger, edge-to-edge)
+  imageThumb: {
+    width: 220,
+    height: 150,
+    borderRadius: 10,
+    backgroundColor: '#E5E7EB',
+  },
+  imagePlaceholder: {
+    width: 220,
+    height: 150,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  liCountsRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  liLikeCountLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  liLikeDotBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  liLikeDotBadgeText: {
+    fontSize: 11,
+  },
+  liCountsText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  liCountsTextRight: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+
+  liDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginTop: 10,
+  },
+
+  liActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 8,
+  },
+  liActionBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  liActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  liActionTextActive: {
+    color: PRIMARY_COLOR,
+  },
+
+  liCommentsBlock: {
+    paddingTop: 8,
+  },
+  liViewAllComments: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  liCommentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 10,
+  },
+  liCommentBubble: {
+    flex: 1,
+    marginLeft: 10,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  liCommentTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  liCommentAuthor: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  liCommentTime: {
+    fontSize: 11,
+    color: '#6B7280',
+  },
+  liCommentText: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#111827',
+  },
+  liCommentActionsRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  liMiniAction: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  liMiniActionActive: {
+    color: PRIMARY_COLOR,
+  },
+
+  liCommentComposerRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  liCommentInputWrap: {
+    flex: 1,
+    marginLeft: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  liCommentInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#111827',
+    maxHeight: 110,
+    paddingVertical: 0,
+  },
+  liSendBtn: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: PRIMARY_COLOR,
+  },
+  liSendBtnDisabled: {
+    opacity: 0.6,
+  },
+  liSendBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

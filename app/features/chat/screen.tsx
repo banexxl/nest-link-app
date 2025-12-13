@@ -9,12 +9,13 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Pressable,
   RefreshControl,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import {
   TenantPost,
@@ -32,7 +33,8 @@ import {
   resolveTenant,
   resolveTenantAndProfile
 } from './server-actions';
-import { PRIMARY_COLOR, styles } from './styles';
+import { styles } from './styles';
+
 
 export default function ChatScreen() {
   const primary = useThemeColor({}, 'primary', 'main');
@@ -557,178 +559,195 @@ export default function ChatScreen() {
   const renderPostItem = ({ item }: { item: TenantPost }) => {
     const likeCount = item.likes?.length ?? 0;
     const commentCount = item.comments?.length ?? 0;
-    const createdLabel = new Date(item.created_at).toLocaleString();
-    const postAuthorName = item.tenant_id ? tenantNames[item.tenant_id] : undefined;
-    const isLikedByMe = !!(
-      tenantId && (item.likes ?? []).some((l) => l.tenant_id === tenantId)
-    );
-    const othersCount = isLikedByMe ? Math.max(likeCount - 1, 0) : likeCount;
+
+    const authorName = item.tenant_id ? tenantNames[item.tenant_id] : 'Unknown tenant';
+    const relative = item.created_at ? formatRelativeTime(item.created_at) : '';
+    const isLikedByMe = !!(tenantId && (item.likes ?? []).some((l) => l.tenant_id === tenantId));
+
     const likeBusy = likingPostIds.has(item.id);
     const commentBusy = commentingPostIds.has(item.id);
     const commentDraft = commentDrafts[item.id] ?? '';
 
     const sortedComments = (item.comments ?? [])
       .slice()
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-    const initialVisible = visibleCommentCounts[item.id] ?? 10;
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()); // LinkedIn usually shows older -> newer
+
+    const initialVisible = visibleCommentCounts[item.id] ?? 2; // LI style: show only a couple
     const visibleCount = Math.min(initialVisible, sortedComments.length);
-    const visibleComments = sortedComments.slice(0, visibleCount);
+    const visibleComments = sortedComments.slice(Math.max(0, sortedComments.length - visibleCount));
     const hasMoreComments = sortedComments.length > visibleCount;
 
     return (
-      <View style={styles.postCard}>
-        <Text style={styles.postMeta}>
-          {postAuthorName ? `${postAuthorName} · ${createdLabel}` : createdLabel}
-        </Text>
-        {item.content_text ? (
-          <Text style={styles.postText}>{item.content_text}</Text>
-        ) : null}
+      <View style={styles.liCard}>
+        {/* Header */}
+        <View style={styles.liHeaderRow}>
+          <AvatarCircle label={authorName} />
 
-        {renderPostImages(item)}
+          <View style={styles.liHeaderMeta}>
+            <Text style={styles.liAuthorName} numberOfLines={1}>
+              {authorName}
+            </Text>
+            <View style={styles.liSubMetaRow}>
+              <Text style={styles.liSubMetaText}>{relative}</Text>
+              <Text style={styles.liDot}>·</Text>
+              <Text style={styles.liSubMetaText}>Building</Text>
+            </View>
+          </View>
 
-        {/* Existing comments (separated and paginated) */}
-        {visibleComments.length > 0 && (
-          <View style={styles.commentsContainer}>
-            <Text style={styles.commentsHeader}>Comments</Text>
-            {visibleComments.map((c) => (
-              <View key={c.id} style={styles.commentRow}>
-                <Text style={styles.commentText}>{c.comment_text ?? ''}</Text>
-                <View style={styles.commentFooterRow}>
-                  <Text style={styles.commentMeta}>
-                    {(() => {
-                      const commentAuthorName = c.tenant_id
-                        ? tenantNames[c.tenant_id]
-                        : undefined;
-                      const ts = new Date(c.created_at).toLocaleString();
-                      return commentAuthorName ? `${commentAuthorName} · ${ts}` : ts;
-                    })()}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.commentLikeButton}
-                    activeOpacity={0.7}
-                    onPress={() => handleToggleCommentLike(item.id, c)}
-                    disabled={likingCommentIds.has(c.id)}
-                  >
-                    {likingCommentIds.has(c.id) ? (
-                      <ActivityIndicator size="small" color={PRIMARY_COLOR} />
-                    ) : (
-                      <Text
-                        style={[
-                          styles.commentLikeText,
-                          tenantId && (c.likes ?? []).some((l) => l.tenant_id === tenantId) &&
-                          styles.commentLikeTextActive,
-                        ]}
-                      >
-                        {(() => {
-                          const count = c.likes?.length ?? 0;
-                          return count > 0 ? `Like (${count})` : 'Like';
-                        })()}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-            {hasMoreComments && (
-              <TouchableOpacity
-                style={styles.loadMoreCommentsButton}
-                onPress={() =>
-                  setVisibleCommentCounts((prev) => ({
-                    ...prev,
-                    [item.id]: (prev[item.id] ?? 10) + 10,
-                  }))
-                }
-                activeOpacity={0.8}
-              >
-                <Text style={styles.loadMoreCommentsText}>Load older comments</Text>
-              </TouchableOpacity>
-            )}
+          <Pressable style={styles.liHeaderMenu} hitSlop={10} onPress={() => Alert.alert('Post', 'Menu')}>
+            <Text style={styles.liMenuDots}>•••</Text>
+          </Pressable>
+        </View>
+
+        {/* Body text */}
+        {!!item.content_text && (
+          <View style={{ marginTop: 6 }}>
+            <TextWithSeeMore text={item.content_text} numberOfLines={4} />
           </View>
         )}
 
-        <View style={styles.postFooterRow}>
+        {/* Media */}
+        {renderPostImages(item)}
+
+        {/* Counts row */}
+        <View style={styles.liCountsRow}>
           <TouchableOpacity
             disabled={likeCount === 0}
             onPress={() => likeCount > 0 && openPostLikesModal(item)}
             activeOpacity={0.7}
           >
-            <Text
-              style={[
-                styles.postCounts,
-                likeCount > 0 && styles.postCountsInteractive,
-              ]}
-            >
-              {(() => {
-                if (likeCount === 0) {
-                  return `${commentCount} comments`;
-                }
-
-                if (isLikedByMe) {
-                  if (othersCount === 0) {
-                    return `You · ${commentCount} comments`;
-                  }
-                  return `You and ${othersCount} other${othersCount > 1 ? 's' : ''
-                    } · ${commentCount} comments`;
-                }
-
-                return `${likeCount} like${likeCount > 1 ? 's' : ''
-                  } · ${commentCount} comments`;
-              })()}
-            </Text>
+            <View style={styles.liLikeCountLeft}>
+              {likeCount > 0 && <View style={styles.liLikeDotBadge}><Text style={styles.liLikeDotBadgeText}>👍</Text></View>}
+              <Text style={styles.liCountsText}>
+                {likeCount > 0 ? `${likeCount}` : ''}
+              </Text>
+            </View>
           </TouchableOpacity>
-          <View style={styles.postActionsRow}>
-            <TouchableOpacity
-              style={styles.postActionButton}
-              activeOpacity={0.7}
-              onPress={() => handleTogglePostLike(item)}
-              disabled={likeBusy}
-            >
-              {likeBusy ? (
-                <ActivityIndicator size="small" color={PRIMARY_COLOR} />
-              ) : (
-                <Text
-                  style={[
-                    styles.postActionText,
-                    isLikedByMe && styles.postActionTextActive,
-                  ]}
-                >
-                  {isLikedByMe ? '👍' : '👍 Like'}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
+
+          <Text style={styles.liCountsTextRight}>
+            {commentCount > 0 ? `${commentCount} comments` : ''}
+          </Text>
         </View>
 
-        {/* Inline comment composer */}
-        <View style={styles.commentComposerRow}>
-          <TextInput
-            style={styles.commentInput}
-            placeholder="Write a comment..."
-            value={commentDraft}
-            onChangeText={(text) =>
-              setCommentDrafts((prev) => ({ ...prev, [item.id]: text }))
-            }
-            multiline
-          />
+        <View style={styles.liDivider} />
+
+        {/* Actions row */}
+        <View style={styles.liActionsRow}>
           <TouchableOpacity
-            style={styles.commentSendButton}
-            onPress={() => handleAddComment(item)}
-            disabled={!commentDraft.trim() || commentBusy}
-            activeOpacity={0.85}
+            style={styles.liActionBtn}
+            activeOpacity={0.7}
+            onPress={() => handleTogglePostLike(item)}
+            disabled={likeBusy}
           >
-            {commentBusy ? (
-              <ActivityIndicator color="#fff" />
+            {likeBusy ? (
+              <ActivityIndicator size="small" color="#6B7280" />
             ) : (
-              <Text style={styles.commentSendText}>Send</Text>
+              <Text style={[styles.liActionText, isLikedByMe && styles.liActionTextActive]}>
+                👍 Like
+              </Text>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.liActionBtn}
+            activeOpacity={0.7}
+            onPress={() =>
+              setVisibleCommentCounts((prev) => ({ ...prev, [item.id]: Math.max(prev[item.id] ?? 2, 6) }))
+            }
+          >
+            <Text style={styles.liActionText}>💬 Comment</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.liDivider} />
+
+        {/* Comments */}
+        {commentCount > 0 && (
+          <View style={styles.liCommentsBlock}>
+            {hasMoreComments && (
+              <TouchableOpacity
+                onPress={() =>
+                  setVisibleCommentCounts((prev) => ({
+                    ...prev,
+                    [item.id]: (prev[item.id] ?? 2) + 10,
+                  }))
+                }
+                activeOpacity={0.8}
+              >
+                <Text style={styles.liViewAllComments}>View all comments</Text>
+              </TouchableOpacity>
+            )}
+
+            {visibleComments.map((c) => {
+              const cAuthor = c.tenant_id ? tenantNames[c.tenant_id] : 'Unknown';
+              const cTime = c.created_at ? formatRelativeTime(c.created_at) : '';
+              const cLiked = !!(tenantId && (c.likes ?? []).some((l) => l.tenant_id === tenantId));
+              const cBusy = likingCommentIds.has(c.id);
+              const cLikeCount = c.likes?.length ?? 0;
+
+              return (
+                <View key={c.id} style={styles.liCommentRow}>
+                  <AvatarCircle label={cAuthor} />
+
+                  <View style={styles.liCommentBubble}>
+                    <View style={styles.liCommentTopRow}>
+                      <Text style={styles.liCommentAuthor} numberOfLines={1}>{cAuthor}</Text>
+                      <Text style={styles.liCommentTime}>{cTime}</Text>
+                    </View>
+
+                    <Text style={styles.liCommentText}>{c.comment_text ?? ''}</Text>
+
+                    <View style={styles.liCommentActionsRow}>
+                      <TouchableOpacity
+                        onPress={() => handleToggleCommentLike(item.id, c)}
+                        disabled={cBusy}
+                        activeOpacity={0.7}
+                      >
+                        {cBusy ? (
+                          <ActivityIndicator size="small" color="#6B7280" />
+                        ) : (
+                          <Text style={[styles.liMiniAction, cLiked && styles.liMiniActionActive]}>
+                            Like{cLikeCount ? ` · ${cLikeCount}` : ''}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Comment composer */}
+        <View style={styles.liCommentComposerRow}>
+          <AvatarCircle label={tenantId ? (tenantNames[tenantId] ?? 'You') : 'You'} />
+
+          <View style={styles.liCommentInputWrap}>
+            <TextInput
+              style={styles.liCommentInput}
+              placeholder="Add a comment…"
+              value={commentDraft}
+              onChangeText={(text) => setCommentDrafts((prev) => ({ ...prev, [item.id]: text }))}
+              multiline
+            />
+            <TouchableOpacity
+              onPress={() => handleAddComment(item)}
+              disabled={!commentDraft.trim() || commentBusy}
+              activeOpacity={0.85}
+              style={[
+                styles.liSendBtn,
+                (!commentDraft.trim() || commentBusy) && styles.liSendBtnDisabled,
+              ]}
+            >
+              {commentBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.liSendBtnText}>Post</Text>}
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
   };
+
 
   const renderComposer = () => {
     return (
@@ -774,6 +793,69 @@ export default function ChatScreen() {
       </BackgroundScreen>
     );
   }
+
+  const formatRelativeTime = (iso: string) => {
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    const s = Math.floor(diff / 1000);
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    const day = Math.floor(h / 24);
+
+    if (s < 60) return `${s}s`;
+    if (m < 60) return `${m}m`;
+    if (h < 24) return `${h}h`;
+    if (day < 7) return `${day}d`;
+    return d.toLocaleDateString();
+  };
+
+  const AvatarCircle = ({ label }: { label: string }) => {
+    const initials =
+      (label || 'U')
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((w) => w[0]?.toUpperCase())
+        .join('') || 'U';
+
+    return (
+      <View style={styles.liAvatar}>
+        <Text style={styles.liAvatarText}>{initials}</Text>
+      </View>
+    );
+  };
+
+  const TextWithSeeMore = ({
+    text,
+    numberOfLines = 4,
+  }: {
+    text: string;
+    numberOfLines?: number;
+  }) => {
+    const [expanded, setExpanded] = useState(false);
+    const [showMore, setShowMore] = useState(false);
+
+    return (
+      <View>
+        <Text
+          style={styles.liPostText}
+          numberOfLines={expanded ? undefined : numberOfLines}
+          onTextLayout={(e) => {
+            // crude but practical: if it overflows the given lines, show "…see more"
+            if (!expanded && e.nativeEvent.lines?.length > numberOfLines) setShowMore(true);
+          }}
+        >
+          {text}
+        </Text>
+
+        {showMore && !expanded && (
+          <Text style={styles.liSeeMore} onPress={() => setExpanded(true)}>
+            …see more
+          </Text>
+        )}
+      </View>
+    );
+  };
 
   return (
     <BackgroundScreen>
